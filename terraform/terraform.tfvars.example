@@ -1,0 +1,156 @@
+# ==============================================================================
+# Fichier d'exemple de configuration Terraform - POC PRA
+# ==============================================================================
+# INSTRUCTIONS :
+# 1. Copier ce fichier : cp terraform.tfvars.example terraform.tfvars
+# 2. Éditer terraform.tfvars avec vos valeurs
+# 3. NE JAMAIS committer terraform.tfvars (contient des secrets)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Configuration Générale
+# ------------------------------------------------------------------------------
+
+environment  = "dev"
+project_name = "pra"
+owner        = "votre-email@example.com"
+
+# ------------------------------------------------------------------------------
+# Configuration Azure
+# ------------------------------------------------------------------------------
+
+azure_location            = "francecentral"
+azure_vnet_cidr           = "10.1.0.0/16"
+azure_gateway_subnet_cidr = "10.1.255.0/24"
+azure_default_subnet_cidr = "10.1.1.0/24"
+
+# SKU du VPN Gateway
+# VpnGw1 : ~90-100€/mois, 650 Mbps, 30 tunnels
+# VpnGw2 : ~250-280€/mois, 1 Gbps, 30 tunnels
+# VpnGw3 : ~500-550€/mois, 1.25 Gbps, 30 tunnels
+vpn_gateway_sku           = "VpnGw1"
+vpn_gateway_active_active = false
+
+# BGP (requis pour les tunnels OVH avec failover automatique)
+enable_bgp    = true
+azure_bgp_asn = 65515
+
+# ------------------------------------------------------------------------------
+# Configuration StrongSwan (On-Premises Simulé)
+# ------------------------------------------------------------------------------
+
+# Activer le déploiement de StrongSwan
+deploy_strongswan = true
+
+onprem_location   = "francecentral"
+onprem_vnet_cidr  = "192.168.0.0/16"
+onprem_subnet_cidr = "192.168.1.0/24"
+strongswan_vm_size = "Standard_B1s"
+
+# Pre-Shared Key pour le tunnel StrongSwan
+# ⚠️  IMPORTANT : Générer un PSK fort avec : openssl rand -base64 32
+ipsec_psk_strongswan = "VOTRE_PSK_FORT_ICI_32_CARACTERES_MINIMUM"
+
+# Politique IPsec pour StrongSwan (valeurs par défaut recommandées)
+ipsec_policy_strongswan = {
+  dh_group         = "DHGroup14"
+  ike_encryption   = "AES256"
+  ike_integrity    = "SHA256"
+  ipsec_encryption = "AES256"
+  ipsec_integrity  = "SHA256"
+  pfs_group        = "None"
+  sa_lifetime      = 3600
+  sa_datasize      = 102400000
+}
+
+# ------------------------------------------------------------------------------
+# Configuration OVHCloud RBX (Primary)
+# ------------------------------------------------------------------------------
+
+# Activer le déploiement du tunnel vers RBX
+deploy_ovh_rbx = false
+
+# À remplir si deploy_ovh_rbx = true
+ovh_rbx_public_ip    = ""  # IP publique du FortiGate RBX
+ovh_rbx_mgmt_ip      = ""  # IP de management du FortiGate RBX
+ovh_rbx_bgp_asn      = 65001
+ovh_rbx_bgp_peer_ip  = "169.254.30.2"
+ipsec_psk_rbx        = ""  # PSK pour le tunnel RBX
+
+# ------------------------------------------------------------------------------
+# Configuration OVHCloud SBG (Backup)
+# ------------------------------------------------------------------------------
+
+# Activer le déploiement du tunnel vers SBG
+deploy_ovh_sbg = false
+
+# À remplir si deploy_ovh_sbg = true
+ovh_sbg_public_ip    = ""  # IP publique du FortiGate SBG
+ovh_sbg_mgmt_ip      = ""  # IP de management du FortiGate SBG
+ovh_sbg_bgp_asn      = 65002
+ovh_sbg_bgp_peer_ip  = "169.254.31.2"
+ipsec_psk_sbg        = ""  # PSK pour le tunnel SBG
+
+# Politique IPsec pour FortiGate (RBX et SBG)
+ipsec_policy_fortigate = {
+  dh_group         = "DHGroup14"
+  ike_encryption   = "AES256"
+  ike_integrity    = "SHA256"
+  ipsec_encryption = "AES256"
+  ipsec_integrity  = "SHA256"
+  pfs_group        = "PFS2048"
+  sa_lifetime      = 27000
+  sa_datasize      = 102400000
+}
+
+# ------------------------------------------------------------------------------
+# Configuration SSH
+# ------------------------------------------------------------------------------
+
+admin_username = "azureuser"
+
+# Option 1 : Utiliser une clé SSH existante (recommandé)
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+ssh_public_key      = ""
+
+# Option 2 : Fournir le contenu de la clé directement
+# ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQ..."
+
+# Source autorisée pour SSH
+# ⚠️  SÉCURITÉ : En production, remplacer "*" par votre IP (ex: "1.2.3.4/32")
+ssh_source_address_prefix = "*"
+
+# ------------------------------------------------------------------------------
+# Infrastructure VMware OVHCloud (optionnel)
+# ------------------------------------------------------------------------------
+
+deploy_ovh_infrastructure = false
+
+# ==============================================================================
+# NOTES DE SÉCURITÉ
+# ==============================================================================
+#
+# 1. PSK (Pre-Shared Keys) :
+#    - Générer avec : openssl rand -base64 32
+#    - Minimum 32 caractères recommandé
+#    - Ne JAMAIS committer dans Git
+#    - En production, utiliser Azure Key Vault
+#
+# 2. SSH :
+#    - Restreindre ssh_source_address_prefix à votre IP
+#    - Utiliser des clés SSH (pas de mot de passe)
+#    - Désactiver l'authentification par mot de passe
+#
+# 3. Coûts Azure estimés (France Central) :
+#    - VPN Gateway VpnGw1 : ~90-100€/mois
+#    - VM StrongSwan B1s : ~8€/mois
+#    - IPs publiques : ~3€/mois chacune
+#    - Bande passante : variable selon usage
+#
+# 4. Durée de déploiement :
+#    - VPN Gateway : 30-45 minutes (création initiale)
+#    - VMs : 3-5 minutes
+#    - Tunnels IPsec : instantané
+#    - Total : ~45-50 minutes
+#
+# ==============================================================================
