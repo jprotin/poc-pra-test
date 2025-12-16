@@ -1,0 +1,66 @@
+---
+# roles/strongswan/tasks/main.yml
+
+- name: Install StrongSwan and dependencies
+  apt:
+    name:
+      - strongswan
+      - strongswan-pki
+      - libcharon-extra-plugins
+      - libcharon-extauth-plugins
+      - libstrongswan-extra-plugins
+      - curl
+      - tcpdump
+      - netcat-traditional
+      - iperf3
+      - hping3
+      - net-tools
+    state: present
+    update_cache: yes
+
+- name: Enable IP forwarding
+  sysctl:
+    name: "{{ item }}"
+    value: '1'
+    state: present
+    reload: yes
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv4.conf.all.accept_redirects
+    - net.ipv4.conf.all.send_redirects
+
+- name: Disable unnecessary redirects
+  sysctl:
+    name: "{{ item }}"
+    value: '0'
+    state: present
+    reload: yes
+  loop:
+    - net.ipv4.conf.default.send_redirects
+    - net.ipv4.conf.eth0.send_redirects
+    - net.ipv4.conf.default.accept_redirects
+    - net.ipv4.conf.eth0.accept_redirects
+
+- name: Create sysctl configuration for IPsec
+  copy:
+    dest: /etc/sysctl.d/99-ipsec.conf
+    content: |
+      # Enable IP forwarding for IPsec
+      net.ipv4.ip_forward=1
+      net.ipv4.conf.all.accept_redirects=0
+      net.ipv4.conf.all.send_redirects=0
+      net.ipv4.conf.default.send_redirects=0
+      net.ipv4.conf.eth0.send_redirects=0
+      net.ipv4.conf.default.accept_redirects=0
+      net.ipv4.conf.eth0.accept_redirects=0
+    mode: '0644'
+
+- name: Apply sysctl settings
+  command: sysctl -p /etc/sysctl.d/99-ipsec.conf
+  changed_when: false
+
+- name: Enable and start StrongSwan service
+  systemd:
+    name: strongswan
+    enabled: yes
+    state: started

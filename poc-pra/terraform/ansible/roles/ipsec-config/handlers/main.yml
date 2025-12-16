@@ -1,0 +1,7 @@
+---
+# roles/ipsec-config/handlers/main.yml
+
+- name: restart strongswan
+  systemd:
+    name: strongswan
+    state: restarted

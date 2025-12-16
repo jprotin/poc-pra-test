@@ -1,0 +1,46 @@
+# Terraform
+*.tfvars
+!*.tfvars.example
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate*
+tfplan
+*.tfplan
+*.backup
+
+# Ansible
+ansible/inventory.ini
+ansible/group_vars/all.yml
+*.retry
+
+# Logs et outputs des scripts
+scripts/*.log
+scripts/*.json
+scripts/*-backup-*.json
+scripts/bgp-routes-*.json
+
+# SSH Keys
+*.pem
+*.ppk
+id_rsa*
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Archives
+*.tar.gz
+*.zip
+
+# Secrets
+secrets/
+*.secret

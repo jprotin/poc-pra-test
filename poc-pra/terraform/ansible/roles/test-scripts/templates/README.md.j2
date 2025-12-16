@@ -1,0 +1,57 @@
+# {{ ansible_managed }}
+# StrongSwan IPsec S2S Configuration
+
+## Configuration
+
+- **Azure VPN Gateway IP**: {{ azure_vpn_gateway_ip }}
+- **Azure VNet CIDR**: {{ azure_vnet_cidr }}
+- **On-Premises VNet CIDR**: {{ onprem_vnet_cidr }}
+
+## Scripts de test disponibles
+
+### Test complet
+```bash
+sudo /usr/local/bin/test-ipsec.sh
+```
+
+### Trafic continu
+```bash
+sudo /usr/local/bin/continuous-traffic.sh
+```
+
+## Commandes utiles
+
+### Vérifier le statut IPsec
+```bash
+sudo ipsec status
+sudo ipsec statusall
+```
+
+### Voir les logs
+```bash
+sudo journalctl -u strongswan -f
+```
+
+### Redémarrer IPsec
+```bash
+sudo ipsec restart
+```
+
+### Voir les Security Associations
+```bash
+sudo ip xfrm state
+sudo ip xfrm policy
+```
+
+### Capture de paquets
+```bash
+sudo tcpdump -i any -n '(esp or udp port 500 or udp port 4500)'
+```
+
+## Troubleshooting
+
+Si le tunnel ne s'établit pas:
+1. Vérifier les logs: `sudo journalctl -u strongswan -n 100`
+2. Vérifier la configuration: `sudo ipsec checkconfig`
+3. Redémarrer: `sudo ipsec restart`
+4. Vérifier l'état Azure: `az network vpn-connection show ...`

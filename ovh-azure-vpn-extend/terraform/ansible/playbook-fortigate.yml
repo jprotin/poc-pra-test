@@ -1,0 +1,66 @@
+---
+# playbook-fortigate.yml - Configuration des FortiGates RBX et SBG
+
+- name: Configure FortiGate RBX (Primary) and SBG (Backup) for Azure VPN with BGP
+  hosts: fortigates
+  gather_facts: no
+  connection: local
+
+  vars_files:
+    - group_vars/all.yml
+
+  tasks:
+    - name: Display FortiGate configuration summary
+      debug:
+        msg:
+          - "Configuring FortiGate: {{ inventory_hostname }}"
+          - "Role: {{ fortigate_role }}"
+          - "Public IP: {{ fortigate_public_ip }}"
+          - "BGP ASN: {{ bgp_asn }}"
+          - "BGP Peer IP: {{ bgp_peer_ip }}"
+          - "Local Preference: {{ bgp_local_preference }}"
+          - "AS-PATH Prepend: {{ bgp_as_path_prepend }}"
+
+    - name: Include FortiGate configuration role
+      include_role:
+        name: fortigate-ipsec-bgp
+
+    - name: Wait for configuration to apply
+      pause:
+        seconds: 10
+
+    - name: Verify IPsec tunnel status
+      fortios_monitor_fact:
+        vdom: "root"
+        selector: "vpn.ipsec.tunnel-summary"
+        access_token: "{{ fortigate_api_token | default(omit) }}"
+      register: ipsec_status
+      ignore_errors: yes
+
+    - name: Display IPsec tunnel status
+      debug:
+        var: ipsec_status
+      when: ipsec_status is defined
+
+- name: Verification and Testing
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Display post-configuration instructions
+      debug:
+        msg:
+          - "=== Configuration Complete ==="
+          - ""
+          - "Next steps:"
+          - "1. Verify IPsec tunnels on FortiGates:"
+          - "   RBX: https://{{ hostvars['fortigate-rbx']['fortigate_mgmt_ip'] }}"
+          - "   SBG: https://{{ hostvars['fortigate-sbg']['fortigate_mgmt_ip'] }}"
+          - ""
+          - "2. Check tunnel status: get vpn ipsec tunnel summary"
+          - "3. Check BGP status: get router info bgp summary"
+          - "4. Check BGP routes: get router info bgp neighbors {{ hostvars['fortigate-rbx']['azure_vpn_gateway_ip'] }} advertised-routes"
+          - ""
+          - "5. Test connectivity from Azure to OVH networks"
+          - "6. Simulate RBX failure: ../scripts/simulate-rbx-failure.sh"
+          - "7. Restore RBX: ../scripts/restore-rbx.sh"
