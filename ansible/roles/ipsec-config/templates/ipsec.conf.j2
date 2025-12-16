@@ -1,0 +1,44 @@
+# ==============================================================================
+# Configuration StrongSwan IPsec
+# Généré par Ansible
+# ==============================================================================
+
+config setup
+    charondebug="ike 2, knl 2, cfg 2, net 2, esp 2, dmn 2, mgr 2"
+    uniqueids=never
+
+# Connexion vers Azure VPN Gateway
+conn azure-tunnel
+    auto=start
+    type=tunnel
+
+    # Phase 1 (IKE)
+    keyexchange=ikev2
+    ike={{ ipsec_ike_encryption }}-{{ ipsec_ike_integrity }}-{{ ipsec_dh_group }}!
+    ikelifetime=28800s
+
+    # Phase 2 (IPsec)
+    esp={{ ipsec_esp_encryption }}-{{ ipsec_esp_integrity }}!
+    lifetime={{ ipsec_sa_lifetime }}s
+
+    # Authentification
+    authby=psk
+
+    # Endpoints locaux (StrongSwan)
+    left=%defaultroute
+    leftid={{ ansible_default_ipv4.address }}
+    leftsubnet={{ onprem_vnet_cidr }}
+
+    # Endpoints distants (Azure)
+    right={{ azure_vpn_gateway_ip }}
+    rightsubnet={{ azure_vnet_cidr }}
+
+    # DPD (Dead Peer Detection)
+    dpdaction=restart
+    dpddelay=30s
+    dpdtimeout=120s
+
+    # Options
+    closeaction=restart
+    compress=no
+    mobike=no

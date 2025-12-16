@@ -1,0 +1,55 @@
+---
+# ==============================================================================
+# Rôle Ansible : Installation et configuration de StrongSwan
+# ==============================================================================
+
+- name: Installer les packages nécessaires
+  apt:
+    name:
+      - strongswan
+      - strongswan-pki
+      - libcharon-extra-plugins
+      - libcharon-extauth-plugins
+      - libstrongswan-extra-plugins
+      - iptables
+      - iptables-persistent
+    state: present
+    update_cache: yes
+
+- name: Activer l'IP forwarding
+  sysctl:
+    name: "{{ item }}"
+    value: '1'
+    sysctl_set: yes
+    state: present
+    reload: yes
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv4.conf.all.accept_redirects
+    - net.ipv4.conf.all.send_redirects
+
+- name: Désactiver les redirects ICMP (sécurité)
+  sysctl:
+    name: "{{ item }}"
+    value: '0'
+    sysctl_set: yes
+    state: present
+    reload: yes
+  loop:
+    - net.ipv4.conf.all.accept_redirects
+    - net.ipv4.conf.all.send_redirects
+
+- name: Créer le répertoire de configuration
+  file:
+    path: /etc/ipsec.d
+    state: directory
+    mode: '0755'
+
+- name: S'assurer que StrongSwan est activé au démarrage
+  systemd:
+    name: strongswan
+    enabled: yes
+
+- name: Afficher le statut d'installation
+  debug:
+    msg: "StrongSwan installé avec succès"

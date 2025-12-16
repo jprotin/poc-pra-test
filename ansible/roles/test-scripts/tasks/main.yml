@@ -1,0 +1,36 @@
+---
+# ==============================================================================
+# Rôle Ansible : Installation des scripts de test
+# ==============================================================================
+
+- name: Créer le répertoire pour les scripts
+  file:
+    path: /usr/local/bin
+    state: directory
+    mode: '0755'
+
+- name: Installer le script de test IPsec
+  template:
+    src: test-ipsec.sh.j2
+    dest: /usr/local/bin/test-ipsec.sh
+    mode: '0755'
+
+- name: Installer le script de génération de trafic continu
+  template:
+    src: continuous-traffic.sh.j2
+    dest: /usr/local/bin/continuous-traffic.sh
+    mode: '0755'
+
+- name: Installer le script de monitoring
+  template:
+    src: monitor-tunnel.sh.j2
+    dest: /usr/local/bin/monitor-tunnel.sh
+    mode: '0755'
+
+- name: Afficher les scripts installés
+  debug:
+    msg:
+      - "Scripts de test installés :"
+      - "  - /usr/local/bin/test-ipsec.sh"
+      - "  - /usr/local/bin/continuous-traffic.sh"
+      - "  - /usr/local/bin/monitor-tunnel.sh"

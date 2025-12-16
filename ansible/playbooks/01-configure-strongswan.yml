@@ -1,0 +1,59 @@
+---
+# ==============================================================================
+# Playbook Ansible : Configuration complète de StrongSwan
+# ==============================================================================
+
+- name: Configurer StrongSwan pour tunnel IPsec vers Azure
+  hosts: strongswan
+  become: yes
+  gather_facts: yes
+
+  pre_tasks:
+    - name: Attendre que cloud-init soit terminé
+      command: cloud-init status --wait
+      changed_when: false
+
+    - name: Mettre à jour le cache APT
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+  roles:
+    - role: strongswan
+      tags: ['install']
+
+    - role: ipsec-config
+      tags: ['config']
+
+    - role: test-scripts
+      tags: ['scripts']
+
+  post_tasks:
+    - name: Afficher les informations de connexion
+      debug:
+        msg:
+          - "==================================================================="
+          - "  Configuration StrongSwan terminée avec succès !"
+          - "==================================================================="
+          - ""
+          - "Informations du tunnel :"
+          - "  - IP locale : {{ ansible_default_ipv4.address }}"
+          - "  - Réseau local : {{ onprem_vnet_cidr }}"
+          - "  - Azure VPN Gateway : {{ azure_vpn_gateway_ip }}"
+          - "  - Réseau Azure : {{ azure_vnet_cidr }}"
+          - ""
+          - "Commandes de vérification :"
+          - "  sudo ipsec status"
+          - "  sudo /usr/local/bin/test-ipsec.sh"
+          - "  sudo /usr/local/bin/monitor-tunnel.sh"
+          - ""
+          - "==================================================================="
+
+    - name: Vérifier le statut du tunnel
+      command: ipsec status
+      register: tunnel_status
+      changed_when: false
+
+    - name: Afficher le statut du tunnel
+      debug:
+        var: tunnel_status.stdout_lines
