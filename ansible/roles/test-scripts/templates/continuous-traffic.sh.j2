@@ -1,0 +1,21 @@
+#!/bin/bash
+# ==============================================================================
+# Script de génération de trafic continu vers Azure
+# ==============================================================================
+
+AZURE_TARGET="{{ azure_vnet_cidr | regex_replace('/.*', '.10') }}"
+INTERVAL=5
+
+echo "Génération de trafic vers Azure : ${AZURE_TARGET}"
+echo "Appuyez sur Ctrl+C pour arrêter"
+echo ""
+
+while true; do
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    if ping -c 1 -W 2 ${AZURE_TARGET} > /dev/null 2>&1; then
+        echo "[${timestamp}] ✅ Ping OK vers ${AZURE_TARGET}"
+    else
+        echo "[${timestamp}] ❌ Ping FAILED vers ${AZURE_TARGET}"
+    fi
+    sleep ${INTERVAL}
+done

@@ -1,0 +1,6 @@
+#!/bin/bash
+# ==============================================================================
+# Script de monitoring du tunnel IPsec
+# ==============================================================================
+
+watch -n 2 'ipsec status && echo "" && echo "=== Traffic Statistics ===" && ip -s xfrm state'

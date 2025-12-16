@@ -1,0 +1,59 @@
+---
+# ==============================================================================
+# Rôle Ansible : Configuration FortiGate IPsec + BGP
+# ==============================================================================
+# Note : Ce rôle utilise l'API FortiOS pour configurer les FortiGates
+# ==============================================================================
+
+- name: Afficher les informations de configuration
+  debug:
+    msg:
+      - "Configuration du FortiGate : {{ inventory_hostname }}"
+      - "Rôle : {{ fortigate_role }}"
+      - "IP publique : {{ fortigate_public_ip }}"
+      - "Préférence locale BGP : {{ bgp_local_preference }}"
+
+- name: Configurer la Phase 1 IPsec
+  fortios_vpn_ipsec_phase1_interface:
+    vdom: "root"
+    state: "present"
+    vpn_ipsec_phase1_interface:
+      name: "azure-tunnel"
+      interface: "wan1"
+      peertype: "any"
+      proposal: "aes256-sha256"
+      dhgrp: "14"
+      remote_gw: "{{ azure_vpn_gateway_ip }}"
+      psksecret: "{{ ipsec_psk }}"
+      dpd: "on-idle"
+      dpd_retryinterval: 30
+  delegate_to: localhost
+
+- name: Configurer la Phase 2 IPsec
+  fortios_vpn_ipsec_phase2_interface:
+    vdom: "root"
+    state: "present"
+    vpn_ipsec_phase2_interface:
+      name: "azure-tunnel-p2"
+      phase1name: "azure-tunnel"
+      proposal: "aes256-sha256"
+      pfs: "enable"
+      dhgrp: "14"
+  delegate_to: localhost
+
+- name: Configurer BGP
+  fortios_router_bgp:
+    vdom: "root"
+    router_bgp:
+      as: "{{ bgp_asn }}"
+      router_id: "{{ fortigate_public_ip }}"
+      neighbor:
+        - ip: "{{ azure_bgp_peer_ip }}"
+          remote_as: "{{ azure_bgp_asn }}"
+          route_map_in: "azure-in"
+          route_map_out: "azure-out"
+  delegate_to: localhost
+
+- name: Afficher le résultat
+  debug:
+    msg: "Configuration FortiGate terminée avec succès"

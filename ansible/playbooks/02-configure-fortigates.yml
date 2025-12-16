@@ -1,0 +1,54 @@
+---
+# ==============================================================================
+# Playbook Ansible : Configuration des FortiGates RBX et SBG
+# ==============================================================================
+
+- name: Configurer les FortiGates pour tunnels IPsec/BGP vers Azure
+  hosts: fortigates
+  gather_facts: no
+  connection: local
+
+  vars_files:
+    - "../group_vars/{{ ansible_inventory_sources[0] | dirname | basename }}/fortigates.yml"
+
+  tasks:
+    - name: Afficher un résumé de la configuration
+      debug:
+        msg:
+          - "==================================================================="
+          - "  Configuration {{ inventory_hostname }}"
+          - "==================================================================="
+          - "  Rôle : {{ fortigate_role }}"
+          - "  IP publique : {{ fortigate_public_ip }}"
+          - "  Azure VPN Gateway : {{ azure_vpn_gateway_ip }}"
+          - "  Préférence locale BGP : {{ bgp_local_preference }}"
+          - "==================================================================="
+
+    - name: Appliquer la configuration FortiGate
+      include_role:
+        name: fortigate-ipsec-bgp
+
+- name: Vérification finale
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: Afficher les instructions post-configuration
+      debug:
+        msg:
+          - "==================================================================="
+          - "  Configuration des FortiGates terminée"
+          - "==================================================================="
+          - ""
+          - "Prochaines étapes :"
+          - "  1. Vérifier les tunnels IPsec sur les FortiGates"
+          - "  2. Vérifier le peering BGP"
+          - "  3. Tester la connectivité Azure <-> OVH"
+          - "  4. Tester le failover RBX -> SBG"
+          - ""
+          - "Commandes de vérification (sur FortiGate) :"
+          - "  get vpn ipsec tunnel summary"
+          - "  get router info bgp summary"
+          - "  get router info bgp neighbors <azure-ip> advertised-routes"
+          - ""
+          - "==================================================================="

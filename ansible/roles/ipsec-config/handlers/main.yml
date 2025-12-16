@@ -1,0 +1,13 @@
+---
+# ==============================================================================
+# Handlers pour le rôle ipsec-config
+# ==============================================================================
+
+- name: restart strongswan
+  systemd:
+    name: strongswan
+    state: restarted
+
+- name: reload iptables
+  command: iptables-restore < /etc/iptables/rules.v4
+  changed_when: false

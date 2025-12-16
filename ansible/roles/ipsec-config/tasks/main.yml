@@ -1,0 +1,53 @@
+---
+# ==============================================================================
+# Rôle Ansible : Configuration IPsec pour StrongSwan
+# ==============================================================================
+
+- name: Configurer ipsec.conf
+  template:
+    src: ipsec.conf.j2
+    dest: /etc/ipsec.conf
+    mode: '0644'
+  notify: restart strongswan
+
+- name: Configurer ipsec.secrets
+  template:
+    src: ipsec.secrets.j2
+    dest: /etc/ipsec.secrets
+    mode: '0600'
+  notify: restart strongswan
+
+- name: Configurer les règles iptables pour IPsec
+  blockinfile:
+    path: /etc/iptables/rules.v4
+    create: yes
+    block: |
+      # Règles IPsec
+      -A INPUT -p esp -j ACCEPT
+      -A INPUT -p udp --dport 500 -j ACCEPT
+      -A INPUT -p udp --dport 4500 -j ACCEPT
+      -A FORWARD -s {{ onprem_vnet_cidr }} -j ACCEPT
+      -A FORWARD -d {{ onprem_vnet_cidr }} -j ACCEPT
+      -A FORWARD -s {{ azure_vnet_cidr }} -j ACCEPT
+      -A FORWARD -d {{ azure_vnet_cidr }} -j ACCEPT
+      -t nat -A POSTROUTING -s {{ onprem_vnet_cidr }} -o eth0 -m policy --dir out --pol ipsec -j ACCEPT
+    marker: "# {mark} ANSIBLE MANAGED IPsec RULES"
+  notify: reload iptables
+
+- name: Appliquer les règles iptables
+  command: iptables-restore < /etc/iptables/rules.v4
+  changed_when: false
+
+- name: Démarrer StrongSwan
+  systemd:
+    name: strongswan
+    state: started
+    enabled: yes
+
+- name: Attendre que StrongSwan soit prêt
+  wait_for:
+    timeout: 10
+
+- name: Charger la connexion IPsec
+  command: ipsec reload
+  changed_when: false
