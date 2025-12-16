@@ -1,0 +1,253 @@
+# ==============================================================================
+# .gitignore pour POC PRA - Infrastructure as Code
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Terraform
+# ------------------------------------------------------------------------------
+
+# Fichiers d'état Terraform (contiennent des secrets !)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Répertoires Terraform
+.terraform/
+.terraform.lock.hcl
+
+# Plans Terraform
+*.tfplan
+tfplan
+
+# Fichiers de variables contenant des secrets
+# ⚠️  IMPORTANT : Ne JAMAIS committer terraform.tfvars en production
+terraform.tfvars
+*.auto.tfvars
+
+# Logs Terraform
+crash.log
+crash.*.log
+
+# Fichiers de override
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# CLI configuration files
+.terraformrc
+terraform.rc
+
+# ------------------------------------------------------------------------------
+# Ansible
+# ------------------------------------------------------------------------------
+
+# Inventaires générés par Terraform
+ansible/inventories/*/strongswan.ini
+ansible/inventories/*/fortigates.ini
+ansible/inventories/*/*.ini
+
+# Variables générées par Terraform
+ansible/group_vars/*/strongswan.yml
+ansible/group_vars/*/fortigates.yml
+ansible/group_vars/*/*.yml
+
+# Fichiers de retry Ansible
+*.retry
+
+# Vault password files
+.vault_pass
+.vault_password
+vault_pass.txt
+
+# Ansible logs
+ansible.log
+
+# ------------------------------------------------------------------------------
+# Scripts générés
+# ------------------------------------------------------------------------------
+
+# Scripts de test générés par Terraform
+scripts/test/check-vpn-status.sh
+
+# Logs de scripts
+scripts/**/*.log
+
+# ------------------------------------------------------------------------------
+# SSH
+# ------------------------------------------------------------------------------
+
+# Clés SSH (ne doivent JAMAIS être commitées)
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+*.ppk
+
+# ------------------------------------------------------------------------------
+# IDE et Éditeurs
+# ------------------------------------------------------------------------------
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.*.swp
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ------------------------------------------------------------------------------
+# Système d'exploitation
+# ------------------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# ------------------------------------------------------------------------------
+# Logs et Données Temporaires
+# ------------------------------------------------------------------------------
+
+# Logs généraux
+*.log
+logs/
+*.tmp
+
+# Fichiers temporaires
+tmp/
+temp/
+.tmp/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# ------------------------------------------------------------------------------
+# Secrets et Credentials
+# ------------------------------------------------------------------------------
+
+# ⚠️  CRITIQUE : Ne JAMAIS committer ces fichiers !
+
+# Fichiers de secrets
+secrets/
+*.secret
+*.secrets
+credentials.json
+.env
+.env.local
+.env.*.local
+
+# Certificats et clés privées
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+
+# Fichiers de configuration avec credentials
+config.local.*
+.credentials
+
+# ------------------------------------------------------------------------------
+# Documentation temporaire
+# ------------------------------------------------------------------------------
+
+# Fichiers de documentation temporaires
+*.draft.md
+*.tmp.md
+draft/
+
+# PDFs générés
+Documentation/*.pdf
+
+# ------------------------------------------------------------------------------
+# Tests et Coverage
+# ------------------------------------------------------------------------------
+
+# Résultats de tests
+test-results/
+coverage/
+*.cover
+.coverage
+
+# ------------------------------------------------------------------------------
+# Azure
+# ------------------------------------------------------------------------------
+
+# Azure CLI cache
+.azure/
+
+# ------------------------------------------------------------------------------
+# OVHCloud
+# ------------------------------------------------------------------------------
+
+# Credentials OVH
+.ovhrc
+ovh.conf
+
+# ------------------------------------------------------------------------------
+# Divers
+# ------------------------------------------------------------------------------
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+
+# Outputs Terraform sauvegardés
+outputs.json
+terraform-outputs.json
+
+# Notes personnelles
+notes.md
+TODO.personal.md
+
+# ------------------------------------------------------------------------------
+# EXCEPTIONS (fichiers à inclure malgré les règles ci-dessus)
+# ------------------------------------------------------------------------------
+
+# Inclure les exemples de configuration
+!terraform.tfvars.example
+!*.example
+!examples/
+
+# Inclure les templates
+!templates/
+!**/templates/
+
+# Inclure la documentation
+!Documentation/
+!*.md
+
+# ==============================================================================
+# FIN .gitignore
+# ==============================================================================

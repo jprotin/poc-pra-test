@@ -1,0 +1,49 @@
+#cloud-config
+# ==============================================================================
+# Cloud-init pour VM StrongSwan
+# ==============================================================================
+# Description : Configuration cloud-init minimale pour préparer la VM
+#               La configuration complète de StrongSwan sera effectuée par Ansible
+# ==============================================================================
+
+# Définir le hostname
+hostname: ${hostname}
+fqdn: ${hostname}.local
+
+# Mettre à jour les packages au premier démarrage
+package_update: true
+package_upgrade: false
+
+# Installer les packages de base nécessaires
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - software-properties-common
+  - python3
+  - python3-pip
+  - git
+
+# Activer l'IP forwarding pour le routage IPsec
+write_files:
+  - path: /etc/sysctl.d/99-ip-forward.conf
+    content: |
+      # Activer l'IP forwarding pour IPsec
+      net.ipv4.ip_forward = 1
+      net.ipv4.conf.all.accept_redirects = 0
+      net.ipv4.conf.all.send_redirects = 0
+    permissions: '0644'
+
+# Commandes à exécuter au premier démarrage
+runcmd:
+  # Appliquer les paramètres sysctl
+  - sysctl -p /etc/sysctl.d/99-ip-forward.conf
+
+  # Créer le répertoire pour les logs
+  - mkdir -p /var/log/cloud-init
+
+  # Marquer que cloud-init est terminé
+  - touch /var/log/cloud-init/finished
+
+# Message final
+final_message: "Cloud-init terminé. La VM est prête pour le provisioning Ansible."
