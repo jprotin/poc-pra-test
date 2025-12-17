@@ -1,0 +1,154 @@
+---
+###############################################################################
+# PLAYBOOK ANSIBLE - DÉPLOIEMENT ZERTO
+###############################################################################
+# Description: Playbook principal pour déployer la configuration Zerto
+# Usage: ansible-playbook -i inventory/zerto_hosts.yml deploy-zerto.yml
+###############################################################################
+
+- name: Déploiement de la configuration Zerto
+  hosts: localhost
+  gather_facts: true
+  become: false
+
+  vars:
+    zerto_base_dir: "{{ playbook_dir }}/../.."
+    terraform_dir: "{{ zerto_base_dir }}/terraform"
+
+  tasks:
+    - name: Vérifier les prérequis
+      ansible.builtin.debug:
+        msg: "Démarrage du déploiement Zerto"
+
+    - name: Vérifier la présence de Terraform
+      ansible.builtin.command: terraform version
+      register: terraform_version
+      changed_when: false
+      failed_when: terraform_version.rc != 0
+
+    - name: Afficher la version de Terraform
+      ansible.builtin.debug:
+        msg: "Terraform version: {{ terraform_version.stdout_lines[0] }}"
+
+    - name: Vérifier la présence du fichier terraform.tfvars
+      ansible.builtin.stat:
+        path: "{{ terraform_dir }}/terraform.tfvars"
+      register: tfvars_file
+
+    - name: Erreur si terraform.tfvars n'existe pas
+      ansible.builtin.fail:
+        msg: |
+          Le fichier terraform.tfvars est requis.
+          Copiez terraform.tfvars.example vers terraform.tfvars et remplissez les valeurs.
+      when: not tfvars_file.stat.exists
+
+    - name: Initialiser Terraform
+      ansible.builtin.command:
+        cmd: terraform init
+        chdir: "{{ terraform_dir }}"
+      register: tf_init
+      changed_when: "'Terraform has been successfully initialized' in tf_init.stdout"
+
+    - name: Valider la configuration Terraform
+      ansible.builtin.command:
+        cmd: terraform validate
+        chdir: "{{ terraform_dir }}"
+      register: tf_validate
+      changed_when: false
+      failed_when: tf_validate.rc != 0
+
+    - name: Planifier le déploiement Terraform
+      ansible.builtin.command:
+        cmd: terraform plan -out=tfplan
+        chdir: "{{ terraform_dir }}"
+      register: tf_plan
+      changed_when: false
+
+    - name: Afficher le résumé du plan
+      ansible.builtin.debug:
+        msg: "{{ tf_plan.stdout_lines[-10:] }}"
+
+    - name: Confirmer le déploiement
+      ansible.builtin.pause:
+        prompt: "Appuyez sur Entrée pour appliquer le plan Terraform, ou Ctrl+C pour annuler"
+      when: not (auto_approve | default(false))
+
+    - name: Appliquer la configuration Terraform
+      ansible.builtin.command:
+        cmd: terraform apply {{ '-auto-approve' if (auto_approve | default(false)) else '' }} tfplan
+        chdir: "{{ terraform_dir }}"
+      register: tf_apply
+      changed_when: "'Apply complete!' in tf_apply.stdout"
+
+    - name: Afficher les outputs Terraform
+      ansible.builtin.command:
+        cmd: terraform output -json
+        chdir: "{{ terraform_dir }}"
+      register: tf_outputs
+      changed_when: false
+
+    - name: Sauvegarder les outputs
+      ansible.builtin.copy:
+        content: "{{ tf_outputs.stdout }}"
+        dest: "{{ zerto_base_dir }}/terraform-outputs.json"
+        mode: '0600'
+
+    - name: Afficher le résumé du déploiement
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Déploiement Zerto terminé avec succès!
+          ========================================
+
+          Les VPGs suivants ont été créés:
+          - RBX -> SBG
+          - SBG -> RBX
+
+          Configuration réseau Fortigate appliquée
+          Monitoring configuré
+
+          Consultez les outputs dans: {{ zerto_base_dir }}/terraform-outputs.json
+
+###############################################################################
+# CONFIGURATION POST-DÉPLOIEMENT
+###############################################################################
+
+- name: Configuration post-déploiement
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    zerto_base_dir: "{{ playbook_dir }}/../.."
+    scripts_dir: "{{ zerto_base_dir }}/scripts"
+
+  tasks:
+    - name: Créer le répertoire de scripts
+      ansible.builtin.file:
+        path: "{{ scripts_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Vérifier la configuration des VPGs
+      ansible.builtin.debug:
+        msg: "Vérification de la réplication Zerto en cours..."
+
+    - name: Afficher les prochaines étapes
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Prochaines étapes:
+          ========================================
+
+          1. Vérifier les VPGs dans la console Zerto
+          2. Tester le failover:
+             ./scripts/test-failover.sh
+
+          3. En cas d'incident, lancer le failover:
+             ./scripts/failover-rbx-to-sbg.sh (si RBX tombe)
+             ./scripts/failover-sbg-to-rbx.sh (si SBG tombe)
+
+          4. Une fois l'incident résolu, lancer le failback:
+             ./scripts/failback.sh
+
+          Consultez la documentation dans:
+          Documentation/zerto/

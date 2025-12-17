@@ -8,6 +8,7 @@ Ce projet déploie une infrastructure hybride complète avec VPN IPsec/BGP entre
 - **VM StrongSwan** : Simulation d'un site on-premises avec tunnel IPsec statique
 - **Tunnels OVHCloud** : Connexions IPsec/BGP vers RBX (Primary) et SBG (Backup)
 - **Failover automatique** : Basculement RBX ↔ SBG via BGP
+- **Zerto Disaster Recovery** : Solution PRA/PRI bi-directionnelle RBX ⟷ SBG avec RPO 5 minutes
 - **Infrastructure as Code** : Terraform, Ansible, Shell scripts
 
 ## 🏗️ Architecture
@@ -100,11 +101,18 @@ poc-pra-test/
 │   ├── inventories/                   # Inventaires par environnement
 │   └── group_vars/                    # Variables par groupe
 │
-└── scripts/                           # 📜 Scripts utilitaires
-    ├── deploy/                        # Scripts de déploiement
-    ├── destroy/                       # Scripts de destruction
-    ├── test/                          # Scripts de test
-    └── utils/                         # Utilitaires divers
+├── scripts/                           # 📜 Scripts utilitaires
+│   ├── deploy/                        # Scripts de déploiement
+│   ├── destroy/                       # Scripts de destruction
+│   ├── test/                          # Scripts de test
+│   └── utils/                         # Utilitaires divers
+│
+└── zerto/                             # 🔄 Solution Zerto PRA/PRI
+    ├── terraform/                     # Infrastructure Zerto
+    ├── ansible/                       # Configuration Zerto
+    ├── scripts/                       # Failover/Failback scripts
+    ├── config/                        # Configuration
+    └── README.md                      # Documentation Zerto
 ```
 
 ## 📚 Documentation
@@ -115,6 +123,10 @@ poc-pra-test/
 | [02-TECHNIQUE.md](Documentation/02-TECHNIQUE.md) | 🔧 Architecture technique détaillée |
 | [03-DEPLOIEMENT.md](Documentation/03-DEPLOIEMENT.md) | 📖 Guide de déploiement pas à pas |
 | [04-SECURITE.md](Documentation/04-SECURITE.md) | 🔒 Audit de sécurité et recommandations |
+| **Zerto PRA/PRI** | |
+| [zerto/README.md](zerto/README.md) | 🔄 Solution Zerto - Vue d'ensemble |
+| [zerto/01-implementation-technique.md](Documentation/zerto/01-implementation-technique.md) | 🛠️ Zerto - Implémentation technique |
+| [zerto/02-guide-fonctionnel.md](Documentation/zerto/02-guide-fonctionnel.md) | 📋 Zerto - Guide fonctionnel et opérations |
 
 ## 🎯 Cas d'usage
 

@@ -1,0 +1,41 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform/
+.terraform.lock.hcl
+tfplan
+terraform-debug.log
+
+# Secrets et configuration
+config/failover.conf
+*.key
+*.pem
+*.crt
+
+# Logs
+logs/
+*.log
+
+# Outputs
+terraform-outputs.json
+
+# Ansible
+*.retry
+ansible/inventory/vpg-*.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backups
+*.bak
+*.backup
