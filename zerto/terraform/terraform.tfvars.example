@@ -1,20 +1,11 @@
 ###############################################################################
-# EXEMPLE DE CONFIGURATION - ZERTO DISASTER RECOVERY
+# EXEMPLE DE CONFIGURATION - ZERTO DISASTER RECOVERY sur VMware vSphere
 ###############################################################################
 # Description: Fichier d'exemple pour les variables Terraform
+# Platform: OVHcloud Hosted Private Cloud (VMware vSphere)
 # Usage: Copier ce fichier en terraform.tfvars et remplir avec vos valeurs
 #        cp terraform.tfvars.example terraform.tfvars
 ###############################################################################
-
-###############################################################################
-# CONFIGURATION OVH CLOUD
-###############################################################################
-
-ovh_endpoint           = "ovh-eu"
-ovh_application_key    = "VOTRE_APPLICATION_KEY"
-ovh_application_secret = "VOTRE_APPLICATION_SECRET"
-ovh_consumer_key       = "VOTRE_CONSUMER_KEY"
-ovh_project_id         = "VOTRE_PROJECT_ID"
 
 ###############################################################################
 # ENVIRONNEMENT
@@ -26,16 +17,30 @@ common_tags = {
   "Project"     = "POC-PRA"
   "ManagedBy"   = "Terraform"
   "Solution"    = "Zerto"
+  "Platform"    = "VMware-vSphere"
   "CostCenter"  = "IT-Infrastructure"
   "Owner"       = "ops-team@exemple.com"
 }
 
 ###############################################################################
-# RÉGIONS
+# VCENTER RBX (ROUBAIX)
 ###############################################################################
 
-region_rbx = "GRA7"  # Région Roubaix (ou RBX si disponible)
-region_sbg = "SBG5"  # Région Strasbourg
+vcenter_rbx_server     = "pcc-xxx-xxx-xxx.ovh.com"
+vcenter_rbx_user       = "admin@vsphere.local"
+vcenter_rbx_password   = "VOTRE_MOT_DE_PASSE_RBX"
+vcenter_rbx_datacenter = "pcc-xxx-xxx-xxx-rbx"
+vcenter_rbx_cluster    = "Cluster1"
+
+###############################################################################
+# VCENTER SBG (STRASBOURG)
+###############################################################################
+
+vcenter_sbg_server     = "pcc-yyy-yyy-yyy.ovh.com"
+vcenter_sbg_user       = "admin@vsphere.local"
+vcenter_sbg_password   = "VOTRE_MOT_DE_PASSE_SBG"
+vcenter_sbg_datacenter = "pcc-yyy-yyy-yyy-sbg"
+vcenter_sbg_cluster    = "Cluster1"
 
 ###############################################################################
 # CONFIGURATION ZERTO
@@ -43,6 +48,10 @@ region_sbg = "SBG5"  # Région Strasbourg
 
 zerto_site_id_rbx = "SITE_ID_RBX_DEPUIS_CONSOLE_ZERTO"
 zerto_site_id_sbg = "SITE_ID_SBG_DEPUIS_CONSOLE_ZERTO"
+
+# API Zerto (optionnel, peut utiliser username/password)
+zerto_api_endpoint = "https://zerto-api.ovh.net"
+zerto_api_token    = "VOTRE_TOKEN_API_ZERTO"
 
 # RPO de 5 minutes (300 secondes)
 zerto_rpo_seconds = 300
@@ -62,55 +71,60 @@ zerto_wan_acceleration   = true
 ###############################################################################
 # VMs PROTÉGÉES - RBX
 ###############################################################################
+# IMPORTANT: vm_name_vcenter doit correspondre EXACTEMENT au nom dans vCenter
 
 rbx_protected_vms = [
   {
-    name           = "rbx-app-prod-01"
-    instance_id    = "INSTANCE_ID_DE_LA_VM_APP_RBX"
-    boot_order     = 2
-    failover_ip    = "10.1.1.10"
+    name            = "rbx-app-prod-01"
+    vm_name_vcenter = "rbx-app-prod-01"  # Nom EXACT dans vCenter RBX
+    boot_order      = 2                   # Démarre après la DB
+    failover_ip     = "10.1.1.10"
     failover_subnet = "10.1.1.0/24"
-    description    = "Serveur d'application production RBX"
+    description     = "Serveur d'application production RBX"
   },
   {
-    name           = "rbx-db-prod-01"
-    instance_id    = "INSTANCE_ID_DE_LA_VM_DB_RBX"
-    boot_order     = 1  # Démarre en premier
-    failover_ip    = "10.1.1.20"
+    name            = "rbx-db-prod-01"
+    vm_name_vcenter = "rbx-db-prod-01"   # Nom EXACT dans vCenter RBX
+    boot_order      = 1                   # Démarre en premier
+    failover_ip     = "10.1.1.20"
     failover_subnet = "10.1.1.0/24"
-    description    = "Serveur de base de données production RBX"
+    description     = "Serveur de base de données production RBX"
   }
 ]
 
 ###############################################################################
 # VMs PROTÉGÉES - SBG
 ###############################################################################
+# IMPORTANT: vm_name_vcenter doit correspondre EXACTEMENT au nom dans vCenter
 
 sbg_protected_vms = [
   {
-    name           = "sbg-app-prod-01"
-    instance_id    = "INSTANCE_ID_DE_LA_VM_APP_SBG"
-    boot_order     = 2
-    failover_ip    = "10.2.1.10"
+    name            = "sbg-app-prod-01"
+    vm_name_vcenter = "sbg-app-prod-01"  # Nom EXACT dans vCenter SBG
+    boot_order      = 2
+    failover_ip     = "10.2.1.10"
     failover_subnet = "10.2.1.0/24"
-    description    = "Serveur d'application production SBG"
+    description     = "Serveur d'application production SBG"
   },
   {
-    name           = "sbg-db-prod-01"
-    instance_id    = "INSTANCE_ID_DE_LA_VM_DB_SBG"
-    boot_order     = 1  # Démarre en premier
-    failover_ip    = "10.2.1.20"
+    name            = "sbg-db-prod-01"
+    vm_name_vcenter = "sbg-db-prod-01"   # Nom EXACT dans vCenter SBG
+    boot_order      = 1  # Démarre en premier
+    failover_ip     = "10.2.1.20"
     failover_subnet = "10.2.1.0/24"
-    description    = "Serveur de base de données production SBG"
+    description     = "Serveur de base de données production SBG"
   }
 ]
 
 ###############################################################################
-# CONFIGURATION RÉSEAU - RBX
+# CONFIGURATION RÉSEAU VMWARE - RBX
 ###############################################################################
 
-rbx_target_network_id = "NETWORK_ID_RBX"
-rbx_target_subnet_id  = "SUBNET_ID_RBX"
+# Nom du réseau vSphere (doit exister dans vCenter RBX)
+rbx_target_network_name = "VM Network"
+
+# Nom du datastore pour le journal Zerto (doit exister dans vCenter RBX)
+rbx_journal_datastore = "datastore1"
 
 rbx_failover_network_config = {
   gateway       = "10.1.1.1"
@@ -122,11 +136,14 @@ rbx_failover_network_config = {
 rbx_network_ranges = ["10.1.0.0/16", "10.1.1.0/24"]
 
 ###############################################################################
-# CONFIGURATION RÉSEAU - SBG
+# CONFIGURATION RÉSEAU VMWARE - SBG
 ###############################################################################
 
-sbg_target_network_id = "NETWORK_ID_SBG"
-sbg_target_subnet_id  = "SUBNET_ID_SBG"
+# Nom du réseau vSphere (doit exister dans vCenter SBG)
+sbg_target_network_name = "VM Network"
+
+# Nom du datastore pour le journal Zerto (doit exister dans vCenter SBG)
+sbg_journal_datastore = "datastore1"
 
 sbg_failover_network_config = {
   gateway       = "10.2.1.1"
@@ -187,3 +204,36 @@ alert_emails = [
 ]
 
 alert_webhook_url = "https://hooks.slack.com/services/VOTRE/WEBHOOK/URL"
+
+###############################################################################
+# NOTES D'UTILISATION
+###############################################################################
+#
+# 1. RÉCUPÉRER LES NOMS EXACTS DES VMs DANS VCENTER :
+#    - Se connecter à vCenter via vSphere Client
+#    - Aller dans l'inventaire des VMs
+#    - Noter le nom EXACT (sensible à la casse)
+#
+# 2. RÉCUPÉRER LES IDs DES SITES ZERTO :
+#    - Se connecter à la console Zerto
+#    - Aller dans Sites > Manage Sites
+#    - Noter les Site IDs pour RBX et SBG
+#
+# 3. VÉRIFIER LES NOMS DES RÉSEAUX ET DATASTORES :
+#    - Dans vCenter, vérifier que les noms correspondent
+#    - rbx_target_network_name doit exister dans vCenter RBX
+#    - sbg_target_network_name doit exister dans vCenter SBG
+#    - Les datastores doivent avoir assez d'espace (min. 240 GB pour 24h de journal)
+#
+# 4. GÉNÉRER UNE CLÉ API FORTIGATE :
+#    - Se connecter à chaque Fortigate
+#    - System > Administrators
+#    - Create New > API User
+#    - Copier la clé générée
+#
+# 5. SÉCURITÉ :
+#    - Ne JAMAIS commiter terraform.tfvars dans Git
+#    - Utiliser Terraform Cloud ou Vault pour les secrets
+#    - Changer régulièrement les mots de passe et API keys
+#
+###############################################################################

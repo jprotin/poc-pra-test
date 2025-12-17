@@ -2,6 +2,9 @@
 
 Solution de Plan de Reprise d'Activité (PRA) basée sur Zerto pour la réplication bi-directionnelle entre les régions OVHcloud RBX (Roubaix) et SBG (Strasbourg).
 
+> **📌 Plateforme** : Cette solution est conçue pour **OVHcloud Hosted Private Cloud (VMware vSphere)**
+> Les VMs protégées doivent être hébergées sur l'infrastructure VMware (non compatible avec Public Cloud OpenStack).
+
 ## 🎯 Vue d'ensemble
 
 Cette solution protège vos applications critiques avec :
@@ -18,12 +21,12 @@ Cette solution protège vos applications critiques avec :
 ```
 zerto/
 ├── terraform/              # Infrastructure as Code
-│   ├── main.tf            # Configuration principale
-│   ├── variables.tf       # Variables Terraform
+│   ├── main.tf            # Configuration principale (VMware vSphere)
+│   ├── variables.tf       # Variables Terraform (vCenter)
 │   ├── outputs.tf         # Sorties Terraform
-│   ├── terraform.tfvars.example  # Exemple de configuration
+│   ├── terraform.tfvars.example  # Exemple configuration VMware
 │   └── modules/           # Modules Terraform
-│       ├── zerto-vpg/     # Virtual Protection Groups
+│       ├── zerto-vpg-vmware/  # Virtual Protection Groups (VMware)
 │       ├── zerto-network/ # Configuration réseau/Fortigate
 │       └── zerto-monitoring/  # Monitoring et alertes
 │
@@ -48,11 +51,25 @@ zerto/
 
 ### Prérequis
 
+**Infrastructure OVHcloud** :
+- 2x Hosted Private Cloud VMware (RBX + SBG)
+- Accès vCenter sur les deux sites
+- VMs déjà déployées dans vCenter
+- Licence Zerto activée sur les deux sites
+- Fortigates déployés avec accès API
+
+**Outils locaux** :
 - Terraform >= 1.0
 - Ansible >= 2.10
-- Accès API OVHcloud
-- Licence Zerto valide
-- Fortigates déployés avec accès API
+- jq (pour parsing JSON)
+- curl
+
+**Informations nécessaires** :
+- URLs des vCenter (ex: pcc-xxx-xxx.ovh.com)
+- Credentials admin vCenter
+- Site IDs Zerto (depuis console Zerto)
+- Noms EXACTS des VMs dans vCenter
+- Noms des réseaux et datastores vSphere
 
 ### Installation
 
@@ -63,7 +80,26 @@ git clone https://github.com/votre-org/poc-pra-test.git
 cd poc-pra-test/zerto
 ```
 
-#### 2. Configurer les variables Terraform
+#### 2. Récupérer les informations vCenter
+
+**Se connecter à vCenter RBX et SBG** :
+```
+https://pcc-xxx-xxx.ovh.com/ui
+```
+
+**Noter** :
+- Noms EXACTS des VMs (sensible à la casse)
+- Nom du datacenter (ex: "pcc-xxx-xxx-xxx-rbx")
+- Nom du cluster (ex: "Cluster1")
+- Nom du réseau (ex: "VM Network")
+- Nom du datastore pour le journal Zerto
+
+**Récupérer les Site IDs Zerto** :
+- Se connecter à la console Zerto
+- Aller dans **Sites > Manage Sites**
+- Noter les Site IDs pour RBX et SBG
+
+#### 3. Configurer les variables Terraform
 
 ```bash
 cd terraform
@@ -72,12 +108,13 @@ nano terraform.tfvars
 ```
 
 Remplir les valeurs :
-- Credentials OVH API
+- URLs et credentials vCenter (RBX + SBG)
 - Site IDs Zerto
-- IDs des VMs à protéger
-- Configuration Fortigate
+- Noms exacts des VMs depuis vCenter
+- Noms des réseaux et datastores
+- Configuration Fortigate (API keys)
 
-#### 3. Déployer l'infrastructure
+#### 4. Déployer l'infrastructure
 
 ```bash
 # Initialiser Terraform
