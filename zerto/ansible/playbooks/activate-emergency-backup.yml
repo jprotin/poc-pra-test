@@ -1,0 +1,345 @@
+---
+###############################################################################
+# PLAYBOOK ANSIBLE - ACTIVATION BACKUP D'URGENCE
+###############################################################################
+# Description: Active automatiquement les backups d'urgence quand un VPG tombe
+# Trigger: Détection VPG NotMeetingSLA
+# Action: Provisionne infrastructure backup (Terraform) + Active jobs Veeam
+###############################################################################
+
+- name: Activate Emergency Backup for Active/Active Application
+  hosts: localhost
+  gather_facts: yes
+  become: no
+
+  vars:
+    # Variables par défaut (peuvent être surchargées via -e)
+    zerto_api_endpoint: "https://zerto-api.ovh.net"
+    check_interval_seconds: 300  # Vérifier toutes les 5 minutes
+    max_retries: 3
+    terraform_dir: "{{ playbook_dir }}/../../terraform"
+
+  vars_prompt:
+    - name: "app_name"
+      prompt: "Nom de l'application (Application-A ou Application-B)"
+      private: no
+      default: "Application-B"
+
+    - name: "site"
+      prompt: "Site survivant (RBX ou SBG)"
+      private: no
+      default: "SBG"
+
+  tasks:
+    ###########################################################################
+    # PHASE 1: DÉTECTION ET VALIDATION
+    ###########################################################################
+
+    - name: "PHASE 1 - Détection incident"
+      block:
+        - name: Check Zerto VPG status
+          uri:
+            url: "{{ zerto_api_endpoint }}/v1/vpgs"
+            headers:
+              Authorization: "Bearer {{ zerto_api_token }}"
+            method: GET
+            return_content: yes
+            validate_certs: no
+          register: vpg_status_response
+          retries: "{{ max_retries }}"
+          delay: 5
+          until: vpg_status_response.status == 200
+
+        - name: Parse VPG information
+          set_fact:
+            vpg_list: "{{ vpg_status_response.json }}"
+
+        - name: Identify failed VPG
+          set_fact:
+            failed_vpg: >-
+              {{
+                vpg_list | selectattr('VpgName', 'search', app_name) |
+                selectattr('Status', '!=', 'MeetingSLA') |
+                first | default({})
+              }}
+
+        - name: Display VPG status
+          debug:
+            msg:
+              - "VPG Name: {{ failed_vpg.VpgName | default('N/A') }}"
+              - "Status: {{ failed_vpg.Status | default('OK') }}"
+              - "RPO: {{ failed_vpg.ActualRPO | default('N/A') }} seconds"
+              - "Last Test: {{ failed_vpg.LastTest | default('N/A') }}"
+
+        - name: Validate VPG failure
+          assert:
+            that:
+              - failed_vpg.Status is defined
+              - failed_vpg.Status != "MeetingSLA"
+            fail_msg: "VPG is healthy (MeetingSLA). Emergency backup not needed."
+            success_msg: "VPG failure confirmed. Proceeding with emergency backup activation."
+
+    ###########################################################################
+    # PHASE 2: NOTIFICATION INITIALE
+    ###########################################################################
+
+    - name: "PHASE 2 - Notification équipe"
+      block:
+        - name: Send Slack/Teams alert
+          uri:
+            url: "{{ alert_webhook_url }}"
+            method: POST
+            body_format: json
+            body:
+              text: |
+                🚨 **CRITICAL INCIDENT DETECTED**
+
+                **VPG**: {{ failed_vpg.VpgName }}
+                **Status**: {{ failed_vpg.Status }}
+                **Application**: {{ app_name }}
+                **Site survivant**: {{ site }}
+                **RPO actuel**: {{ failed_vpg.ActualRPO | default('∞') }} secondes
+
+                ⚙️ **Action**: Activation automatique du backup d'urgence
+                📊 **Dashboard**: http://monitoring.local:3000/d/zerto-emergency
+
+                _Playbook: activate-emergency-backup.yml_
+            validate_certs: no
+          when: alert_webhook_url is defined and alert_webhook_url != ""
+          ignore_errors: yes
+
+        - name: Send email notification
+          mail:
+            host: "{{ smtp_server | default('localhost') }}"
+            port: "{{ smtp_port | default(25) }}"
+            to: "{{ alert_emails | join(',') }}"
+            subject: "[CRITICAL] Emergency Backup Activation - {{ app_name }}"
+            body: |
+              INCIDENT ZERTO DÉTECTÉ
+
+              VPG: {{ failed_vpg.VpgName }}
+              Application: {{ app_name }}
+              Site: {{ site }}
+              Status: {{ failed_vpg.Status }}
+              RPO: {{ failed_vpg.ActualRPO | default('Infini') }}s
+
+              Action: Activation backup d'urgence
+              Timestamp: {{ ansible_date_time.iso8601 }}
+
+              --
+              Équipe Infrastructure
+          when: alert_emails is defined and alert_emails | length > 0
+          ignore_errors: yes
+
+    ###########################################################################
+    # PHASE 3: PROVISIONNEMENT INFRASTRUCTURE BACKUP (TERRAFORM)
+    ###########################################################################
+
+    - name: "PHASE 3 - Provisionnement infrastructure"
+      block:
+        - name: Create Terraform variables file
+          copy:
+            content: |
+              # Auto-generated by Ansible - {{ ansible_date_time.iso8601 }}
+              app_name                = "{{ app_name }}"
+              site                    = "{{ site }}"
+              environment             = "production"
+
+              # VMs à protéger
+              vms_to_protect = {{ vms_to_protect | to_json }}
+
+              # Backup local
+              enable_local_backup     = true
+              veeam_repository_local  = "Repository-{{ site }}"
+              local_retention_days    = 7
+              backup_times_local      = ["02:00", "14:00"]
+
+              # Backup S3
+              enable_s3_backup        = true
+              s3_region               = "GRA"
+              s3_immutable            = true
+              s3_immutable_days       = 30
+              s3_retention_days       = 30
+              backup_times_s3         = ["04:00", "16:00"]
+
+              # Monitoring
+              enable_monitoring       = true
+              alert_webhook_url       = "{{ alert_webhook_url }}"
+              alert_emails            = {{ alert_emails | to_json }}
+
+              # Sécurité
+              enable_encryption       = true
+              compression_level       = "Optimal"
+            dest: "{{ terraform_dir }}/emergency-backup-{{ app_name }}.auto.tfvars"
+            mode: '0600'
+
+        - name: Initialize Terraform
+          command: terraform init
+          args:
+            chdir: "{{ terraform_dir }}"
+          register: tf_init
+          changed_when: "'Terraform has been successfully initialized' in tf_init.stdout"
+
+        - name: Plan Terraform deployment
+          command: >
+            terraform plan
+            -var-file="emergency-backup-{{ app_name }}.auto.tfvars"
+            -target=module.emergency_backup_{{ app_name | lower | replace('-', '_') }}
+            -out=emergency-backup-{{ app_name }}.tfplan
+          args:
+            chdir: "{{ terraform_dir }}"
+          register: tf_plan
+
+        - name: Display Terraform plan
+          debug:
+            var: tf_plan.stdout_lines
+
+        - name: Apply Terraform deployment
+          command: >
+            terraform apply
+            -auto-approve
+            emergency-backup-{{ app_name }}.tfplan
+          args:
+            chdir: "{{ terraform_dir }}"
+          register: tf_apply
+          changed_when: "'Apply complete!' in tf_apply.stdout"
+
+        - name: Extract Terraform outputs
+          command: terraform output -json
+          args:
+            chdir: "{{ terraform_dir }}"
+          register: tf_outputs_raw
+
+        - name: Parse Terraform outputs
+          set_fact:
+            tf_outputs: "{{ tf_outputs_raw.stdout | from_json }}"
+
+        - name: Display backup infrastructure details
+          debug:
+            msg:
+              - "S3 Bucket: {{ tf_outputs.s3_bucket_name.value }}"
+              - "Veeam Local Job: {{ tf_outputs.veeam_local_job_name.value }}"
+              - "Veeam S3 Job: {{ tf_outputs.veeam_s3_job_name.value }}"
+              - "Backup Status: {{ tf_outputs.backup_status.value }}"
+
+    ###########################################################################
+    # PHASE 4: DÉCLENCHEMENT BACKUP IMMÉDIAT
+    ###########################################################################
+
+    - name: "PHASE 4 - Backup immédiat"
+      block:
+        - name: Trigger immediate local backup
+          uri:
+            url: "{{ veeam_api_endpoint }}/api/v1/jobs/{{ tf_outputs.veeam_local_job_name.value }}/start"
+            headers:
+              Authorization: "Bearer {{ veeam_api_token }}"
+              Content-Type: "application/json"
+            method: POST
+            body_format: json
+            body:
+              type: "Full"
+            validate_certs: no
+          register: backup_start_local
+          retries: 3
+          delay: 10
+          until: backup_start_local.status == 202
+
+        - name: Wait for local backup completion (max 2h)
+          uri:
+            url: "{{ veeam_api_endpoint }}/api/v1/jobs/{{ tf_outputs.veeam_local_job_name.value }}/lastSession"
+            headers:
+              Authorization: "Bearer {{ veeam_api_token }}"
+            method: GET
+            validate_certs: no
+          register: backup_status_local
+          until: backup_status_local.json.state in ['Success', 'Failed', 'Warning']
+          retries: 120  # 120 × 60s = 2 heures max
+          delay: 60
+          failed_when: backup_status_local.json.state == 'Failed'
+
+        - name: Display backup result
+          debug:
+            msg:
+              - "Backup Status: {{ backup_status_local.json.state }}"
+              - "Start Time: {{ backup_status_local.json.creationTime }}"
+              - "End Time: {{ backup_status_local.json.endTime }}"
+              - "Data Transferred: {{ backup_status_local.json.dataSize | default(0) | human_readable }}"
+              - "Duration: {{ backup_status_local.json.duration | default(0) }}s"
+
+    ###########################################################################
+    # PHASE 5: VALIDATION ET SURVEILLANCE
+    ###########################################################################
+
+    - name: "PHASE 5 - Validation"
+      block:
+        - name: Validate backup success
+          assert:
+            that:
+              - backup_status_local.json.state == 'Success'
+            fail_msg: "Backup local a échoué. Vérifier les logs Veeam."
+            success_msg: "Backup local réussi."
+
+        - name: Create monitoring cron job
+          cron:
+            name: "Monitor Emergency Backup {{ app_name }}"
+            minute: "*/30"
+            job: >
+              /usr/local/bin/check-emergency-backup.sh
+              --app {{ app_name }}
+              --site {{ site }}
+              --alert-url {{ alert_webhook_url | quote }}
+            user: root
+            state: present
+
+        - name: Send success notification
+          uri:
+            url: "{{ alert_webhook_url }}"
+            method: POST
+            body_format: json
+            body:
+              text: |
+                ✅ **Emergency Backup Activated Successfully**
+
+                **Application**: {{ app_name }}
+                **Site**: {{ site }}
+                **Backup Local**: {{ backup_status_local.json.state }}
+                **Data Size**: {{ backup_status_local.json.dataSize | default(0) | human_readable }}
+                **Duration**: {{ backup_status_local.json.duration | default(0) }}s
+
+                📊 **Prochaines sauvegardes**: 02:00 et 14:00 (local), 04:00 et 16:00 (S3)
+
+                _Protection compensatoire active jusqu'au retour du site distant._
+            validate_certs: no
+          when: alert_webhook_url is defined and alert_webhook_url != ""
+          ignore_errors: yes
+
+    ###########################################################################
+    # GESTION DES ERREURS
+    ###########################################################################
+
+  rescue:
+    - name: Send failure notification
+      uri:
+        url: "{{ alert_webhook_url }}"
+        method: POST
+        body_format: json
+        body:
+          text: |
+            ❌ **ÉCHEC Activation Emergency Backup**
+
+            **Application**: {{ app_name }}
+            **Site**: {{ site }}
+            **Erreur**: {{ ansible_failed_result.msg | default('Unknown error') }}
+
+            ⚠️ **ACTION MANUELLE REQUISE**
+            Vérifier les logs et activer les backups manuellement.
+
+            Playbook: activate-emergency-backup.yml
+            Timestamp: {{ ansible_date_time.iso8601 }}
+        validate_certs: no
+      when: alert_webhook_url is defined and alert_webhook_url != ""
+      ignore_errors: yes
+
+    - name: Fail with error message
+      fail:
+        msg: "Échec de l'activation du backup d'urgence. Vérifier les logs Ansible."
