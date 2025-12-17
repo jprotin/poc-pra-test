@@ -1,7 +1,8 @@
 ###############################################################################
-# ZERTO DISASTER RECOVERY - CONFIGURATION PRINCIPALE
+# ZERTO DISASTER RECOVERY - CONFIGURATION PRINCIPALE VMware
 ###############################################################################
-# Description: Configuration Terraform pour Zerto entre les régions RBX et SBG
+# Description: Configuration Terraform pour Zerto entre RBX et SBG
+# Plateforme: OVHcloud Hosted Private Cloud (VMware vSphere)
 # Architecture: Bi-directionnelle avec failover automatique
 # Auteur: Infrastructure Team
 # Date: 2025-12-17
@@ -11,9 +12,9 @@ terraform {
   required_version = ">= 1.0"
 
   required_providers {
-    ovh = {
-      source  = "ovh/ovh"
-      version = "~> 0.35"
+    vsphere = {
+      source  = "hashicorp/vsphere"
+      version = "~> 2.5"
     }
     http = {
       source  = "hashicorp/http"
@@ -23,36 +24,111 @@ terraform {
 }
 
 ###############################################################################
-# PROVIDER CONFIGURATION
+# PROVIDER CONFIGURATION - VMware vSphere
 ###############################################################################
 
-# Provider OVHcloud principal
-provider "ovh" {
-  endpoint           = var.ovh_endpoint
-  application_key    = var.ovh_application_key
-  application_secret = var.ovh_application_secret
-  consumer_key       = var.ovh_consumer_key
+# Provider vSphere pour RBX (Roubaix)
+provider "vsphere" {
+  alias = "rbx"
+
+  user                 = var.vcenter_rbx_user
+  password             = var.vcenter_rbx_password
+  vsphere_server       = var.vcenter_rbx_server
+  allow_unverified_ssl = true
+
+  # Retry configuration pour connexions instables
+  api_timeout          = 10
+  vim_keep_alive       = 10
+}
+
+# Provider vSphere pour SBG (Strasbourg)
+provider "vsphere" {
+  alias = "sbg"
+
+  user                 = var.vcenter_sbg_user
+  password             = var.vcenter_sbg_password
+  vsphere_server       = var.vcenter_sbg_server
+  allow_unverified_ssl = true
+
+  # Retry configuration pour connexions instables
+  api_timeout          = 10
+  vim_keep_alive       = 10
 }
 
 ###############################################################################
-# DATA SOURCES - RÉCUPÉRATION DES INFORMATIONS EXISTANTES
+# DATA SOURCES - RÉCUPÉRATION DES INFORMATIONS VMWARE
 ###############################################################################
 
-# Récupération des informations du projet OVHcloud
-data "ovh_cloud_project" "project" {
-  service_name = var.ovh_project_id
+# Datacenter RBX
+data "vsphere_datacenter" "rbx" {
+  provider = vsphere.rbx
+  name     = var.vcenter_rbx_datacenter
 }
 
-# Liste des VMs existantes dans RBX pour protection
-data "ovh_cloud_project_instances" "rbx_instances" {
-  service_name = var.ovh_project_id
-  region       = var.region_rbx
+# Datacenter SBG
+data "vsphere_datacenter" "sbg" {
+  provider = vsphere.sbg
+  name     = var.vcenter_sbg_datacenter
 }
 
-# Liste des VMs existantes dans SBG pour protection
-data "ovh_cloud_project_instances" "sbg_instances" {
-  service_name = var.ovh_project_id
-  region       = var.region_sbg
+# Cluster RBX
+data "vsphere_compute_cluster" "rbx" {
+  provider      = vsphere.rbx
+  name          = var.vcenter_rbx_cluster
+  datacenter_id = data.vsphere_datacenter.rbx.id
+}
+
+# Cluster SBG
+data "vsphere_compute_cluster" "sbg" {
+  provider      = vsphere.sbg
+  name          = var.vcenter_sbg_cluster
+  datacenter_id = data.vsphere_datacenter.sbg.id
+}
+
+# Récupération des VMs protégées dans RBX
+data "vsphere_virtual_machine" "rbx_vms" {
+  provider      = vsphere.rbx
+  for_each      = { for vm in var.rbx_protected_vms : vm.name => vm }
+
+  name          = each.value.vm_name_vcenter
+  datacenter_id = data.vsphere_datacenter.rbx.id
+}
+
+# Récupération des VMs protégées dans SBG
+data "vsphere_virtual_machine" "sbg_vms" {
+  provider      = vsphere.sbg
+  for_each      = { for vm in var.sbg_protected_vms : vm.name => vm }
+
+  name          = each.value.vm_name_vcenter
+  datacenter_id = data.vsphere_datacenter.sbg.id
+}
+
+# Réseau cible RBX
+data "vsphere_network" "rbx_target" {
+  provider      = vsphere.rbx
+  name          = var.rbx_target_network_name
+  datacenter_id = data.vsphere_datacenter.rbx.id
+}
+
+# Réseau cible SBG
+data "vsphere_network" "sbg_target" {
+  provider      = vsphere.sbg
+  name          = var.sbg_target_network_name
+  datacenter_id = data.vsphere_datacenter.sbg.id
+}
+
+# Datastore pour le journal Zerto RBX
+data "vsphere_datastore" "rbx_journal" {
+  provider      = vsphere.rbx
+  name          = var.rbx_journal_datastore
+  datacenter_id = data.vsphere_datacenter.rbx.id
+}
+
+# Datastore pour le journal Zerto SBG
+data "vsphere_datastore" "sbg_journal" {
+  provider      = vsphere.sbg
+  name          = var.sbg_journal_datastore
+  datacenter_id = data.vsphere_datacenter.sbg.id
 }
 
 ###############################################################################
@@ -60,7 +136,7 @@ data "ovh_cloud_project_instances" "sbg_instances" {
 ###############################################################################
 
 module "zerto_rbx_to_sbg" {
-  source = "./modules/zerto-vpg"
+  source = "./modules/zerto-vpg-vmware"
 
   # Identification
   vpg_name        = "VPG-RBX-to-SBG-${var.environment}"
@@ -68,25 +144,44 @@ module "zerto_rbx_to_sbg" {
   environment     = var.environment
 
   # Configuration source (RBX)
-  source_region   = var.region_rbx
-  source_site_id  = var.zerto_site_id_rbx
+  source_site_name   = "RBX"
+  source_site_id     = var.zerto_site_id_rbx
+  source_vcenter     = var.vcenter_rbx_server
+  source_datacenter  = var.vcenter_rbx_datacenter
+  source_cluster     = var.vcenter_rbx_cluster
 
   # Configuration cible (SBG)
-  target_region   = var.region_sbg
-  target_site_id  = var.zerto_site_id_sbg
+  target_site_name   = "SBG"
+  target_site_id     = var.zerto_site_id_sbg
+  target_vcenter     = var.vcenter_sbg_server
+  target_datacenter  = var.vcenter_sbg_datacenter
+  target_cluster     = var.vcenter_sbg_cluster
 
-  # VMs à protéger
-  protected_vms   = var.rbx_protected_vms
+  # VMs à protéger (avec données vSphere)
+  protected_vms = [
+    for vm in var.rbx_protected_vms : {
+      name           = vm.name
+      vm_name_vcenter = vm.vm_name_vcenter
+      vm_uuid        = data.vsphere_virtual_machine.rbx_vms[vm.name].id
+      boot_order     = vm.boot_order
+      failover_ip    = vm.failover_ip
+      failover_subnet = vm.failover_subnet
+      description    = vm.description
+    }
+  ]
 
   # Configuration RPO et retention
-  rpo_seconds     = var.zerto_rpo_seconds
-  journal_history_hours = var.zerto_journal_hours
-  test_interval_hours   = var.zerto_test_interval
+  rpo_seconds            = var.zerto_rpo_seconds
+  journal_history_hours  = var.zerto_journal_hours
+  test_interval_hours    = var.zerto_test_interval
 
-  # Configuration réseau
-  target_network_id     = var.sbg_target_network_id
-  target_subnet_id      = var.sbg_target_subnet_id
-  failover_network_config = var.sbg_failover_network_config
+  # Configuration réseau vSphere
+  target_network_name      = var.sbg_target_network_name
+  target_network_id        = data.vsphere_network.sbg_target.id
+  target_datastore_name    = var.sbg_journal_datastore
+  target_datastore_id      = data.vsphere_datastore.sbg_journal.id
+  target_resource_pool_id  = data.vsphere_compute_cluster.sbg.resource_pool_id
+  failover_network_config  = var.sbg_failover_network_config
 
   # Configuration Fortigate pour routage
   fortigate_config = {
@@ -96,6 +191,10 @@ module "zerto_rbx_to_sbg" {
     bgp_as_number           = var.bgp_as_number
   }
 
+  # Zerto API
+  zerto_api_endpoint = var.zerto_api_endpoint
+  zerto_api_token    = var.zerto_api_token
+
   # Tags et metadata
   tags = merge(
     var.common_tags,
@@ -104,6 +203,7 @@ module "zerto_rbx_to_sbg" {
       "VPG"        = "rbx-to-sbg"
       "DR-Site"    = "SBG"
       "Primary"    = "RBX"
+      "Platform"   = "VMware-vSphere"
     }
   )
 
@@ -119,7 +219,7 @@ module "zerto_rbx_to_sbg" {
 ###############################################################################
 
 module "zerto_sbg_to_rbx" {
-  source = "./modules/zerto-vpg"
+  source = "./modules/zerto-vpg-vmware"
 
   # Identification
   vpg_name        = "VPG-SBG-to-RBX-${var.environment}"
@@ -127,25 +227,44 @@ module "zerto_sbg_to_rbx" {
   environment     = var.environment
 
   # Configuration source (SBG)
-  source_region   = var.region_sbg
-  source_site_id  = var.zerto_site_id_sbg
+  source_site_name   = "SBG"
+  source_site_id     = var.zerto_site_id_sbg
+  source_vcenter     = var.vcenter_sbg_server
+  source_datacenter  = var.vcenter_sbg_datacenter
+  source_cluster     = var.vcenter_sbg_cluster
 
   # Configuration cible (RBX)
-  target_region   = var.region_rbx
-  target_site_id  = var.zerto_site_id_rbx
+  target_site_name   = "RBX"
+  target_site_id     = var.zerto_site_id_rbx
+  target_vcenter     = var.vcenter_rbx_server
+  target_datacenter  = var.vcenter_rbx_datacenter
+  target_cluster     = var.vcenter_rbx_cluster
 
-  # VMs à protéger
-  protected_vms   = var.sbg_protected_vms
+  # VMs à protéger (avec données vSphere)
+  protected_vms = [
+    for vm in var.sbg_protected_vms : {
+      name           = vm.name
+      vm_name_vcenter = vm.vm_name_vcenter
+      vm_uuid        = data.vsphere_virtual_machine.sbg_vms[vm.name].id
+      boot_order     = vm.boot_order
+      failover_ip    = vm.failover_ip
+      failover_subnet = vm.failover_subnet
+      description    = vm.description
+    }
+  ]
 
   # Configuration RPO et retention
-  rpo_seconds     = var.zerto_rpo_seconds
-  journal_history_hours = var.zerto_journal_hours
-  test_interval_hours   = var.zerto_test_interval
+  rpo_seconds            = var.zerto_rpo_seconds
+  journal_history_hours  = var.zerto_journal_hours
+  test_interval_hours    = var.zerto_test_interval
 
-  # Configuration réseau
-  target_network_id     = var.rbx_target_network_id
-  target_subnet_id      = var.rbx_target_subnet_id
-  failover_network_config = var.rbx_failover_network_config
+  # Configuration réseau vSphere
+  target_network_name      = var.rbx_target_network_name
+  target_network_id        = data.vsphere_network.rbx_target.id
+  target_datastore_name    = var.rbx_journal_datastore
+  target_datastore_id      = data.vsphere_datastore.rbx_journal.id
+  target_resource_pool_id  = data.vsphere_compute_cluster.rbx.resource_pool_id
+  failover_network_config  = var.rbx_failover_network_config
 
   # Configuration Fortigate pour routage
   fortigate_config = {
@@ -155,6 +274,10 @@ module "zerto_sbg_to_rbx" {
     bgp_as_number           = var.bgp_as_number
   }
 
+  # Zerto API
+  zerto_api_endpoint = var.zerto_api_endpoint
+  zerto_api_token    = var.zerto_api_token
+
   # Tags et metadata
   tags = merge(
     var.common_tags,
@@ -163,6 +286,7 @@ module "zerto_sbg_to_rbx" {
       "VPG"        = "sbg-to-rbx"
       "DR-Site"    = "RBX"
       "Primary"    = "SBG"
+      "Platform"   = "VMware-vSphere"
     }
   )
 
@@ -233,7 +357,7 @@ module "zerto_monitoring" {
 
   # Configuration générale
   environment      = var.environment
-  project_id       = var.ovh_project_id
+  project_id       = "${var.vcenter_rbx_datacenter}-${var.vcenter_sbg_datacenter}"
 
   # VPGs à monitorer
   vpg_rbx_to_sbg_id = module.zerto_rbx_to_sbg.vpg_id

@@ -1,42 +1,10 @@
 ###############################################################################
-# VARIABLES - CONFIGURATION ZERTO DISASTER RECOVERY
+# VARIABLES - CONFIGURATION ZERTO DISASTER RECOVERY pour VMware vSphere
 ###############################################################################
-# Description: Variables pour la configuration Zerto entre RBX et SBG
-# Usage: Définir les valeurs dans terraform.tfvars ou via variables d'environnement
+# Description: Variables pour la configuration Zerto sur Hosted Private Cloud
+# Platform: OVHcloud VMware vSphere
+# Usage: Définir les valeurs dans terraform.tfvars
 ###############################################################################
-
-###############################################################################
-# VARIABLES OVH CLOUD - AUTHENTIFICATION
-###############################################################################
-
-variable "ovh_endpoint" {
-  description = "Endpoint OVH API (ex: ovh-eu, ovh-ca)"
-  type        = string
-  default     = "ovh-eu"
-}
-
-variable "ovh_application_key" {
-  description = "Clé d'application OVH API"
-  type        = string
-  sensitive   = true
-}
-
-variable "ovh_application_secret" {
-  description = "Secret de l'application OVH API"
-  type        = string
-  sensitive   = true
-}
-
-variable "ovh_consumer_key" {
-  description = "Clé consommateur OVH API"
-  type        = string
-  sensitive   = true
-}
-
-variable "ovh_project_id" {
-  description = "ID du projet OVHcloud Public Cloud"
-  type        = string
-}
 
 ###############################################################################
 # VARIABLES ENVIRONNEMENT
@@ -60,24 +28,75 @@ variable "common_tags" {
     "Project"     = "POC-PRA"
     "ManagedBy"   = "Terraform"
     "Solution"    = "Zerto"
+    "Platform"    = "VMware-vSphere"
     "CostCenter"  = "IT-Infrastructure"
   }
 }
 
 ###############################################################################
-# VARIABLES RÉGIONS OVH
+# VARIABLES VCENTER RBX (ROUBAIX)
 ###############################################################################
 
-variable "region_rbx" {
-  description = "Région OVH Roubaix (site primaire/DR)"
+variable "vcenter_rbx_server" {
+  description = "Serveur vCenter RBX (ex: pcc-xxx-xxx-xxx.ovh.com)"
   type        = string
-  default     = "GRA7"  # Ou RBX selon la disponibilité
 }
 
-variable "region_sbg" {
-  description = "Région OVH Strasbourg (site primaire/DR)"
+variable "vcenter_rbx_user" {
+  description = "Utilisateur vCenter RBX"
   type        = string
-  default     = "SBG5"
+  default     = "admin@vsphere.local"
+  sensitive   = true
+}
+
+variable "vcenter_rbx_password" {
+  description = "Mot de passe vCenter RBX"
+  type        = string
+  sensitive   = true
+}
+
+variable "vcenter_rbx_datacenter" {
+  description = "Nom du datacenter vCenter RBX"
+  type        = string
+}
+
+variable "vcenter_rbx_cluster" {
+  description = "Nom du cluster vCenter RBX"
+  type        = string
+  default     = "Cluster1"
+}
+
+###############################################################################
+# VARIABLES VCENTER SBG (STRASBOURG)
+###############################################################################
+
+variable "vcenter_sbg_server" {
+  description = "Serveur vCenter SBG (ex: pcc-yyy-yyy-yyy.ovh.com)"
+  type        = string
+}
+
+variable "vcenter_sbg_user" {
+  description = "Utilisateur vCenter SBG"
+  type        = string
+  default     = "admin@vsphere.local"
+  sensitive   = true
+}
+
+variable "vcenter_sbg_password" {
+  description = "Mot de passe vCenter SBG"
+  type        = string
+  sensitive   = true
+}
+
+variable "vcenter_sbg_datacenter" {
+  description = "Nom du datacenter vCenter SBG"
+  type        = string
+}
+
+variable "vcenter_sbg_cluster" {
+  description = "Nom du cluster vCenter SBG"
+  type        = string
+  default     = "Cluster1"
 }
 
 ###############################################################################
@@ -85,17 +104,30 @@ variable "region_sbg" {
 ###############################################################################
 
 variable "zerto_site_id_rbx" {
-  description = "ID du site Zerto pour la région RBX"
+  description = "ID du site Zerto pour RBX"
   type        = string
 }
 
 variable "zerto_site_id_sbg" {
-  description = "ID du site Zerto pour la région SBG"
+  description = "ID du site Zerto pour SBG"
   type        = string
 }
 
+variable "zerto_api_endpoint" {
+  description = "Endpoint API Zerto"
+  type        = string
+  default     = "https://zerto-api.ovh.net"
+}
+
+variable "zerto_api_token" {
+  description = "Token API Zerto"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 variable "zerto_rpo_seconds" {
-  description = "RPO (Recovery Point Objective) en secondes - Objectif de perte de données maximale"
+  description = "RPO (Recovery Point Objective) en secondes"
   type        = number
   default     = 300  # 5 minutes
 
@@ -120,11 +152,6 @@ variable "zerto_test_interval" {
   description = "Intervalle entre les tests de failover automatiques en heures"
   type        = number
   default     = 168  # 1 semaine
-
-  validation {
-    condition     = var.zerto_test_interval >= 24
-    error_message = "L'intervalle de test doit être d'au moins 24 heures."
-  }
 }
 
 variable "zerto_priority_high" {
@@ -151,7 +178,7 @@ variable "zerto_enable_encryption" {
 }
 
 variable "zerto_wan_acceleration" {
-  description = "Activer l'accélération WAN pour optimiser le trafic"
+  description = "Activer l'accélération WAN"
   type        = bool
   default     = true
 }
@@ -161,32 +188,32 @@ variable "zerto_wan_acceleration" {
 ###############################################################################
 
 variable "rbx_protected_vms" {
-  description = "Liste des VMs à protéger dans la région RBX"
+  description = "Liste des VMs à protéger dans RBX"
   type = list(object({
-    name           = string
-    instance_id    = string
-    boot_order     = number
-    failover_ip    = string
+    name            = string
+    vm_name_vcenter = string
+    boot_order      = number
+    failover_ip     = string
     failover_subnet = string
-    description    = string
+    description     = string
   }))
 
   default = [
     {
-      name           = "rbx-app-prod-01"
-      instance_id    = ""  # À remplir
-      boot_order     = 2
-      failover_ip    = "10.1.1.10"
+      name            = "rbx-app-prod-01"
+      vm_name_vcenter = "rbx-app-prod-01"  # Nom exact dans vCenter
+      boot_order      = 2
+      failover_ip     = "10.1.1.10"
       failover_subnet = "10.1.1.0/24"
-      description    = "Serveur d'application production RBX"
+      description     = "Serveur d'application production RBX"
     },
     {
-      name           = "rbx-db-prod-01"
-      instance_id    = ""  # À remplir
-      boot_order     = 1
-      failover_ip    = "10.1.1.20"
+      name            = "rbx-db-prod-01"
+      vm_name_vcenter = "rbx-db-prod-01"
+      boot_order      = 1  # Démarre en premier
+      failover_ip     = "10.1.1.20"
       failover_subnet = "10.1.1.0/24"
-      description    = "Serveur de base de données production RBX"
+      description     = "Serveur de base de données production RBX"
     }
   ]
 }
@@ -196,48 +223,50 @@ variable "rbx_protected_vms" {
 ###############################################################################
 
 variable "sbg_protected_vms" {
-  description = "Liste des VMs à protéger dans la région SBG"
+  description = "Liste des VMs à protéger dans SBG"
   type = list(object({
-    name           = string
-    instance_id    = string
-    boot_order     = number
-    failover_ip    = string
+    name            = string
+    vm_name_vcenter = string
+    boot_order      = number
+    failover_ip     = string
     failover_subnet = string
-    description    = string
+    description     = string
   }))
 
   default = [
     {
-      name           = "sbg-app-prod-01"
-      instance_id    = ""  # À remplir
-      boot_order     = 2
-      failover_ip    = "10.2.1.10"
+      name            = "sbg-app-prod-01"
+      vm_name_vcenter = "sbg-app-prod-01"
+      boot_order      = 2
+      failover_ip     = "10.2.1.10"
       failover_subnet = "10.2.1.0/24"
-      description    = "Serveur d'application production SBG"
+      description     = "Serveur d'application production SBG"
     },
     {
-      name           = "sbg-db-prod-01"
-      instance_id    = ""  # À remplir
-      boot_order     = 1
-      failover_ip    = "10.2.1.20"
+      name            = "sbg-db-prod-01"
+      vm_name_vcenter = "sbg-db-prod-01"
+      boot_order      = 1
+      failover_ip     = "10.2.1.20"
       failover_subnet = "10.2.1.0/24"
-      description    = "Serveur de base de données production SBG"
+      description     = "Serveur de base de données production SBG"
     }
   ]
 }
 
 ###############################################################################
-# VARIABLES RÉSEAU - RBX
+# VARIABLES RÉSEAU VMWARE - RBX
 ###############################################################################
 
-variable "rbx_target_network_id" {
-  description = "ID du réseau cible dans RBX pour le failover"
+variable "rbx_target_network_name" {
+  description = "Nom du réseau vSphere cible dans RBX"
   type        = string
+  default     = "VM Network"
 }
 
-variable "rbx_target_subnet_id" {
-  description = "ID du sous-réseau cible dans RBX"
+variable "rbx_journal_datastore" {
+  description = "Nom du datastore pour le journal Zerto RBX"
   type        = string
+  default     = "datastore1"
 }
 
 variable "rbx_failover_network_config" {
@@ -253,7 +282,7 @@ variable "rbx_failover_network_config" {
     gateway       = "10.1.1.1"
     dns_primary   = "213.186.33.99"   # DNS OVH
     dns_secondary = "8.8.8.8"
-    domain_name   = "rbx.local"
+    domain_name   = "rbx.prod.local"
   }
 }
 
@@ -264,17 +293,19 @@ variable "rbx_network_ranges" {
 }
 
 ###############################################################################
-# VARIABLES RÉSEAU - SBG
+# VARIABLES RÉSEAU VMWARE - SBG
 ###############################################################################
 
-variable "sbg_target_network_id" {
-  description = "ID du réseau cible dans SBG pour le failover"
+variable "sbg_target_network_name" {
+  description = "Nom du réseau vSphere cible dans SBG"
   type        = string
+  default     = "VM Network"
 }
 
-variable "sbg_target_subnet_id" {
-  description = "ID du sous-réseau cible dans SBG"
+variable "sbg_journal_datastore" {
+  description = "Nom du datastore pour le journal Zerto SBG"
   type        = string
+  default     = "datastore1"
 }
 
 variable "sbg_failover_network_config" {
@@ -290,7 +321,7 @@ variable "sbg_failover_network_config" {
     gateway       = "10.2.1.1"
     dns_primary   = "213.186.33.99"   # DNS OVH
     dns_secondary = "8.8.8.8"
-    domain_name   = "sbg.local"
+    domain_name   = "sbg.prod.local"
   }
 }
 
