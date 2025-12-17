@@ -2,7 +2,8 @@
 # MODULE ZERTO NETWORK - CONFIGURATION RÉSEAU FORTIGATE
 ###############################################################################
 # Description: Configuration réseau et Fortigate pour Zerto
-# Gère: VIPs, routes BGP, firewall rules pour la réplication
+# Gère: VIPs et firewall rules pour la réplication Zerto
+# Note: Le BGP vers Azure est géré séparément (voir modules/04-tunnel-ipsec-bgp-*)
 ###############################################################################
 
 terraform {
@@ -21,24 +22,6 @@ terraform {
 locals {
   # Configuration des règles firewall pour Zerto
   zerto_ports = var.zerto_firewall_rules.zerto_ports
-
-  # Configuration BGP consolidée
-  bgp_peers = {
-    rbx_to_sbg = {
-      local_router  = var.rbx_fortigate.ip_address
-      peer_router   = var.sbg_fortigate.ip_address
-      local_as      = var.bgp_config.as_number
-      remote_as     = var.bgp_config.as_number
-      networks      = var.bgp_config.rbx_networks
-    }
-    sbg_to_rbx = {
-      local_router  = var.sbg_fortigate.ip_address
-      peer_router   = var.rbx_fortigate.ip_address
-      local_as      = var.bgp_config.as_number
-      remote_as     = var.bgp_config.as_number
-      networks      = var.bgp_config.sbg_networks
-    }
-  }
 }
 
 ###############################################################################
@@ -65,36 +48,10 @@ resource "null_resource" "rbx_fortigate_vips" {
   }
 }
 
-# Configuration BGP sur Fortigate RBX
-resource "null_resource" "rbx_fortigate_bgp" {
-  triggers = {
-    router_id   = var.bgp_config.rbx_router_id
-    as_number   = var.bgp_config.as_number
-    peer_ip     = var.sbg_fortigate.ip_address
-  }
-
-  provisioner "local-exec" {
-    command = "${path.module}/scripts/configure-fortigate-bgp.sh"
-
-    environment = {
-      FORTIGATE_IP   = var.rbx_fortigate.ip_address
-      FORTIGATE_PORT = var.rbx_fortigate.mgmt_port
-      API_KEY        = var.rbx_fortigate.api_key
-      ROUTER_ID      = var.bgp_config.rbx_router_id
-      AS_NUMBER      = tostring(var.bgp_config.as_number)
-      PEER_IP        = var.sbg_fortigate.ip_address
-      NETWORKS_JSON  = jsonencode(var.bgp_config.rbx_networks)
-      SITE           = "RBX"
-    }
-  }
-
-  depends_on = [null_resource.rbx_fortigate_vips]
-}
-
 # Règles firewall pour Zerto sur RBX
 resource "null_resource" "rbx_fortigate_firewall" {
   triggers = {
-    zerto_ports = join(",", local.zerto_ports)
+    zerto_ports   = join(",", local.zerto_ports)
     source_ranges = join(",", var.zerto_firewall_rules.source_ranges_sbg)
   }
 
@@ -113,7 +70,7 @@ resource "null_resource" "rbx_fortigate_firewall" {
     }
   }
 
-  depends_on = [null_resource.rbx_fortigate_bgp]
+  depends_on = [null_resource.rbx_fortigate_vips]
 }
 
 ###############################################################################
@@ -140,36 +97,10 @@ resource "null_resource" "sbg_fortigate_vips" {
   }
 }
 
-# Configuration BGP sur Fortigate SBG
-resource "null_resource" "sbg_fortigate_bgp" {
-  triggers = {
-    router_id   = var.bgp_config.sbg_router_id
-    as_number   = var.bgp_config.as_number
-    peer_ip     = var.rbx_fortigate.ip_address
-  }
-
-  provisioner "local-exec" {
-    command = "${path.module}/scripts/configure-fortigate-bgp.sh"
-
-    environment = {
-      FORTIGATE_IP   = var.sbg_fortigate.ip_address
-      FORTIGATE_PORT = var.sbg_fortigate.mgmt_port
-      API_KEY        = var.sbg_fortigate.api_key
-      ROUTER_ID      = var.bgp_config.sbg_router_id
-      AS_NUMBER      = tostring(var.bgp_config.as_number)
-      PEER_IP        = var.rbx_fortigate.ip_address
-      NETWORKS_JSON  = jsonencode(var.bgp_config.sbg_networks)
-      SITE           = "SBG"
-    }
-  }
-
-  depends_on = [null_resource.sbg_fortigate_vips]
-}
-
 # Règles firewall pour Zerto sur SBG
 resource "null_resource" "sbg_fortigate_firewall" {
   triggers = {
-    zerto_ports = join(",", local.zerto_ports)
+    zerto_ports   = join(",", local.zerto_ports)
     source_ranges = join(",", var.zerto_firewall_rules.source_ranges_rbx)
   }
 
@@ -188,32 +119,55 @@ resource "null_resource" "sbg_fortigate_firewall" {
     }
   }
 
-  depends_on = [null_resource.sbg_fortigate_bgp]
+  depends_on = [null_resource.sbg_fortigate_vips]
 }
 
 ###############################################################################
-# VÉRIFICATION DU PEERING BGP
+# ROUTES STATIQUES POUR VMs FAILOVÉES (Désactivées par défaut)
 ###############################################################################
+# Note: Ces routes sont activées dynamiquement par les scripts de failover
+# Ne pas décommenter sans avoir effectué un failover !
 
-resource "null_resource" "verify_bgp_peering" {
-  triggers = {
-    rbx_config = null_resource.rbx_fortigate_bgp.id
-    sbg_config = null_resource.sbg_fortigate_bgp.id
-  }
+# Routes sur SBG pour VMs failovées depuis RBX (activées au failover)
+# resource "null_resource" "sbg_static_routes_rbx_vms" {
+#   triggers = {
+#     fortigate_ip = var.sbg_fortigate.ip_address
+#   }
+#
+#   provisioner "local-exec" {
+#     command = "${path.module}/scripts/configure-static-routes.sh"
+#
+#     environment = {
+#       FORTIGATE_IP   = var.sbg_fortigate.ip_address
+#       API_KEY        = var.sbg_fortigate.api_key
+#       ROUTES_JSON    = jsonencode([
+#         { dest = "10.1.1.10/32", gateway = "local", interface = "internal" },
+#         { dest = "10.1.1.20/32", gateway = "local", interface = "internal" }
+#       ])
+#       SITE           = "SBG"
+#       SOURCE_SITE    = "RBX"
+#     }
+#   }
+# }
 
-  provisioner "local-exec" {
-    command = "${path.module}/scripts/verify-bgp-peering.sh"
-
-    environment = {
-      RBX_FORTIGATE_IP = var.rbx_fortigate.ip_address
-      RBX_API_KEY      = var.rbx_fortigate.api_key
-      SBG_FORTIGATE_IP = var.sbg_fortigate.ip_address
-      SBG_API_KEY      = var.sbg_fortigate.api_key
-    }
-  }
-
-  depends_on = [
-    null_resource.rbx_fortigate_firewall,
-    null_resource.sbg_fortigate_firewall
-  ]
-}
+# Routes sur RBX pour VMs failovées depuis SBG (activées au failover)
+# resource "null_resource" "rbx_static_routes_sbg_vms" {
+#   triggers = {
+#     fortigate_ip = var.rbx_fortigate.ip_address
+#   }
+#
+#   provisioner "local-exec" {
+#     command = "${path.module}/scripts/configure-static-routes.sh"
+#
+#     environment = {
+#       FORTIGATE_IP   = var.rbx_fortigate.ip_address
+#       API_KEY        = var.rbx_fortigate.api_key
+#       ROUTES_JSON    = jsonencode([
+#         { dest = "10.2.1.10/32", gateway = "local", interface = "internal" },
+#         { dest = "10.2.1.20/32", gateway = "local", interface = "internal" }
+#       ])
+#       SITE           = "RBX"
+#       SOURCE_SITE    = "SBG"
+#     }
+#   }
+# }

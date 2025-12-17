@@ -165,10 +165,6 @@ rbx_fortigate_vip_range    = "10.1.100.0/24"
 rbx_fortigate_internal_if  = "port1"
 rbx_fortigate_external_if  = "port2"
 
-rbx_bgp_peer_ip    = "10.1.0.2"
-rbx_bgp_router_id  = "10.1.0.1"
-rbx_bgp_networks   = ["10.1.0.0/16"]
-
 ###############################################################################
 # CONFIGURATION FORTIGATE - SBG
 ###############################################################################
@@ -180,16 +176,9 @@ sbg_fortigate_vip_range    = "10.2.100.0/24"
 sbg_fortigate_internal_if  = "port1"
 sbg_fortigate_external_if  = "port2"
 
-sbg_bgp_peer_ip    = "10.2.0.2"
-sbg_bgp_router_id  = "10.2.0.1"
-sbg_bgp_networks   = ["10.2.0.0/16"]
-
 ###############################################################################
-# CONFIGURATION BGP
+# CONFIGURATION FORTIGATE - GÉNÉRAL
 ###############################################################################
-
-# Numéro AS privé
-bgp_as_number = 65001
 
 # Port de management des Fortigates
 fortigate_mgmt_port = 443
