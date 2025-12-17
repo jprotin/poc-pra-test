@@ -1,0 +1,189 @@
+###############################################################################
+# EXEMPLE DE CONFIGURATION - ZERTO DISASTER RECOVERY
+###############################################################################
+# Description: Fichier d'exemple pour les variables Terraform
+# Usage: Copier ce fichier en terraform.tfvars et remplir avec vos valeurs
+#        cp terraform.tfvars.example terraform.tfvars
+###############################################################################
+
+###############################################################################
+# CONFIGURATION OVH CLOUD
+###############################################################################
+
+ovh_endpoint           = "ovh-eu"
+ovh_application_key    = "VOTRE_APPLICATION_KEY"
+ovh_application_secret = "VOTRE_APPLICATION_SECRET"
+ovh_consumer_key       = "VOTRE_CONSUMER_KEY"
+ovh_project_id         = "VOTRE_PROJECT_ID"
+
+###############################################################################
+# ENVIRONNEMENT
+###############################################################################
+
+environment = "production"
+
+common_tags = {
+  "Project"     = "POC-PRA"
+  "ManagedBy"   = "Terraform"
+  "Solution"    = "Zerto"
+  "CostCenter"  = "IT-Infrastructure"
+  "Owner"       = "ops-team@exemple.com"
+}
+
+###############################################################################
+# RÉGIONS
+###############################################################################
+
+region_rbx = "GRA7"  # Région Roubaix (ou RBX si disponible)
+region_sbg = "SBG5"  # Région Strasbourg
+
+###############################################################################
+# CONFIGURATION ZERTO
+###############################################################################
+
+zerto_site_id_rbx = "SITE_ID_RBX_DEPUIS_CONSOLE_ZERTO"
+zerto_site_id_sbg = "SITE_ID_SBG_DEPUIS_CONSOLE_ZERTO"
+
+# RPO de 5 minutes (300 secondes)
+zerto_rpo_seconds = 300
+
+# Rétention du journal de 24 heures
+zerto_journal_hours = 24
+
+# Tests automatiques tous les 7 jours (168 heures)
+zerto_test_interval = 168
+
+# Configuration avancée
+zerto_priority_high      = "High"
+zerto_enable_compression = true
+zerto_enable_encryption  = true
+zerto_wan_acceleration   = true
+
+###############################################################################
+# VMs PROTÉGÉES - RBX
+###############################################################################
+
+rbx_protected_vms = [
+  {
+    name           = "rbx-app-prod-01"
+    instance_id    = "INSTANCE_ID_DE_LA_VM_APP_RBX"
+    boot_order     = 2
+    failover_ip    = "10.1.1.10"
+    failover_subnet = "10.1.1.0/24"
+    description    = "Serveur d'application production RBX"
+  },
+  {
+    name           = "rbx-db-prod-01"
+    instance_id    = "INSTANCE_ID_DE_LA_VM_DB_RBX"
+    boot_order     = 1  # Démarre en premier
+    failover_ip    = "10.1.1.20"
+    failover_subnet = "10.1.1.0/24"
+    description    = "Serveur de base de données production RBX"
+  }
+]
+
+###############################################################################
+# VMs PROTÉGÉES - SBG
+###############################################################################
+
+sbg_protected_vms = [
+  {
+    name           = "sbg-app-prod-01"
+    instance_id    = "INSTANCE_ID_DE_LA_VM_APP_SBG"
+    boot_order     = 2
+    failover_ip    = "10.2.1.10"
+    failover_subnet = "10.2.1.0/24"
+    description    = "Serveur d'application production SBG"
+  },
+  {
+    name           = "sbg-db-prod-01"
+    instance_id    = "INSTANCE_ID_DE_LA_VM_DB_SBG"
+    boot_order     = 1  # Démarre en premier
+    failover_ip    = "10.2.1.20"
+    failover_subnet = "10.2.1.0/24"
+    description    = "Serveur de base de données production SBG"
+  }
+]
+
+###############################################################################
+# CONFIGURATION RÉSEAU - RBX
+###############################################################################
+
+rbx_target_network_id = "NETWORK_ID_RBX"
+rbx_target_subnet_id  = "SUBNET_ID_RBX"
+
+rbx_failover_network_config = {
+  gateway       = "10.1.1.1"
+  dns_primary   = "213.186.33.99"  # DNS OVH
+  dns_secondary = "8.8.8.8"         # DNS Google
+  domain_name   = "rbx.prod.local"
+}
+
+rbx_network_ranges = ["10.1.0.0/16", "10.1.1.0/24"]
+
+###############################################################################
+# CONFIGURATION RÉSEAU - SBG
+###############################################################################
+
+sbg_target_network_id = "NETWORK_ID_SBG"
+sbg_target_subnet_id  = "SUBNET_ID_SBG"
+
+sbg_failover_network_config = {
+  gateway       = "10.2.1.1"
+  dns_primary   = "213.186.33.99"  # DNS OVH
+  dns_secondary = "8.8.8.8"         # DNS Google
+  domain_name   = "sbg.prod.local"
+}
+
+sbg_network_ranges = ["10.2.0.0/16", "10.2.1.0/24"]
+
+###############################################################################
+# CONFIGURATION FORTIGATE - RBX
+###############################################################################
+
+rbx_fortigate_ip      = "10.1.0.1"
+rbx_fortigate_api_key = "VOTRE_API_KEY_FORTIGATE_RBX"
+
+rbx_fortigate_vip_range    = "10.1.100.0/24"
+rbx_fortigate_internal_if  = "port1"
+rbx_fortigate_external_if  = "port2"
+
+rbx_bgp_peer_ip    = "10.1.0.2"
+rbx_bgp_router_id  = "10.1.0.1"
+rbx_bgp_networks   = ["10.1.0.0/16"]
+
+###############################################################################
+# CONFIGURATION FORTIGATE - SBG
+###############################################################################
+
+sbg_fortigate_ip      = "10.2.0.1"
+sbg_fortigate_api_key = "VOTRE_API_KEY_FORTIGATE_SBG"
+
+sbg_fortigate_vip_range    = "10.2.100.0/24"
+sbg_fortigate_internal_if  = "port1"
+sbg_fortigate_external_if  = "port2"
+
+sbg_bgp_peer_ip    = "10.2.0.2"
+sbg_bgp_router_id  = "10.2.0.1"
+sbg_bgp_networks   = ["10.2.0.0/16"]
+
+###############################################################################
+# CONFIGURATION BGP
+###############################################################################
+
+# Numéro AS privé
+bgp_as_number = 65001
+
+# Port de management des Fortigates
+fortigate_mgmt_port = 443
+
+###############################################################################
+# MONITORING ET ALERTES
+###############################################################################
+
+alert_emails = [
+  "ops-team@exemple.com",
+  "infrastructure@exemple.com"
+]
+
+alert_webhook_url = "https://hooks.slack.com/services/VOTRE/WEBHOOK/URL"

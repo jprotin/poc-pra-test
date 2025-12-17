@@ -1,0 +1,231 @@
+---
+###############################################################################
+# PLAYBOOK ANSIBLE - CONFIGURATION FORTIGATE POUR ZERTO
+###############################################################################
+# Description: Configure les Fortigates RBX et SBG pour Zerto
+# Usage: ansible-playbook -i inventory/zerto_hosts.yml configure-fortigate.yml
+###############################################################################
+
+- name: Configuration des Fortigates pour Zerto
+  hosts: fortigates
+  gather_facts: true
+  connection: local
+
+  vars:
+    fortigate_api_timeout: 30
+    zerto_ports:
+      - "9071"  # Zerto VSS to ZVM
+      - "9072"  # Zerto ZVM to VSS
+      - "9073"  # Zerto GUI
+      - "4007"  # Zerto VRA to VRA
+      - "4008"  # Zerto VRA to VRA
+
+  tasks:
+    ###########################################################################
+    # VÉRIFICATIONS PRÉALABLES
+    ###########################################################################
+
+    - name: Vérifier la connexion au Fortigate
+      ansible.builtin.uri:
+        url: "https://{{ fortigate_ip }}:{{ fortigate_port | default(443) }}/api/v2/monitor/system/status"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ fortigate_api_key }}"
+        validate_certs: false
+        timeout: "{{ fortigate_api_timeout }}"
+      register: fortigate_status
+      failed_when: fortigate_status.status != 200
+
+    - name: Afficher le statut du Fortigate
+      ansible.builtin.debug:
+        msg: "Fortigate {{ site_name }} - Version: {{ fortigate_status.json.version }}"
+
+    ###########################################################################
+    # CONFIGURATION DES VIPS (VIRTUAL IPS)
+    ###########################################################################
+
+    - name: Créer les VIPs pour Zerto
+      ansible.builtin.uri:
+        url: "https://{{ fortigate_ip }}:{{ fortigate_port | default(443) }}/api/v2/cmdb/firewall/vip"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ fortigate_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          name: "VIP-ZERTO-{{ item }}-{{ site_name }}"
+          extip: "{{ vip_external_ip }}"
+          mappedip:
+            - range: "{{ item }}"
+          extintf: "{{ external_interface }}"
+          portforward: "enable"
+          protocol: "tcp"
+          extport: "{{ item }}"
+          mappedport: "{{ item }}"
+          comment: "VIP pour Zerto - Port {{ item }}"
+        validate_certs: false
+        status_code: [200, 500]  # 500 si existe déjà
+      loop: "{{ zerto_ports }}"
+      register: vip_creation
+      changed_when: vip_creation.status == 200
+
+    ###########################################################################
+    # CONFIGURATION BGP
+    ###########################################################################
+
+    - name: Activer le routeur BGP
+      ansible.builtin.uri:
+        url: "https://{{ fortigate_ip }}:{{ fortigate_port | default(443) }}/api/v2/cmdb/router/bgp"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ fortigate_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          as: "{{ bgp_as_number }}"
+          router-id: "{{ bgp_router_id }}"
+          keepalive-timer: 60
+          holdtime-timer: 180
+          graceful-restart: "enable"
+        validate_certs: false
+      register: bgp_config
+
+    - name: Configurer le neighbor BGP
+      ansible.builtin.uri:
+        url: "https://{{ fortigate_ip }}:{{ fortigate_port | default(443) }}/api/v2/cmdb/router/bgp/neighbor"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ fortigate_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          ip: "{{ bgp_peer_ip }}"
+          remote-as: "{{ bgp_as_number }}"
+          activate: "enable"
+          soft-reconfiguration: "enable"
+          advertisement-interval: 5
+          capability-default-originate: "disable"
+          description: "BGP Peer pour Zerto - {{ peer_site_name }}"
+        validate_certs: false
+        status_code: [200, 500]
+      register: bgp_neighbor
+      changed_when: bgp_neighbor.status == 200
+
+    - name: Annoncer les réseaux via BGP
+      ansible.builtin.uri:
+        url: "https://{{ fortigate_ip }}:{{ fortigate_port | default(443) }}/api/v2/cmdb/router/bgp/network"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ fortigate_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          id: "{{ idx + 1 }}"
+          prefix: "{{ item }}"
+        validate_certs: false
+        status_code: [200, 500]
+      loop: "{{ bgp_networks }}"
+      loop_control:
+        index_var: idx
+      register: bgp_network
+      changed_when: bgp_network.status == 200
+
+    ###########################################################################
+    # RÈGLES FIREWALL
+    ###########################################################################
+
+    - name: Créer la policy firewall pour Zerto (Inbound)
+      ansible.builtin.uri:
+        url: "https://{{ fortigate_ip }}:{{ fortigate_port | default(443) }}/api/v2/cmdb/firewall/policy"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ fortigate_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          name: "ALLOW-ZERTO-INBOUND-{{ site_name }}"
+          srcintf:
+            - name: "{{ external_interface }}"
+          dstintf:
+            - name: "{{ internal_interface }}"
+          srcaddr:
+            - name: "{{ peer_network_range }}"
+          dstaddr:
+            - name: "all"
+          action: "accept"
+          schedule: "always"
+          service:
+            - name: "TCP_9071"
+            - name: "TCP_9072"
+            - name: "TCP_9073"
+            - name: "TCP_4007"
+            - name: "TCP_4008"
+          logtraffic: "all"
+          comments: "Règle Zerto - Trafic entrant de {{ peer_site_name }}"
+        validate_certs: false
+        status_code: [200, 500]
+      register: firewall_inbound
+      changed_when: firewall_inbound.status == 200
+
+    - name: Créer la policy firewall pour Zerto (Outbound)
+      ansible.builtin.uri:
+        url: "https://{{ fortigate_ip }}:{{ fortigate_port | default(443) }}/api/v2/cmdb/firewall/policy"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ fortigate_api_key }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          name: "ALLOW-ZERTO-OUTBOUND-{{ site_name }}"
+          srcintf:
+            - name: "{{ internal_interface }}"
+          dstintf:
+            - name: "{{ external_interface }}"
+          srcaddr:
+            - name: "all"
+          dstaddr:
+            - name: "{{ peer_network_range }}"
+          action: "accept"
+          schedule: "always"
+          service:
+            - name: "TCP_9071"
+            - name: "TCP_9072"
+            - name: "TCP_9073"
+            - name: "TCP_4007"
+            - name: "TCP_4008"
+          logtraffic: "all"
+          comments: "Règle Zerto - Trafic sortant vers {{ peer_site_name }}"
+        validate_certs: false
+        status_code: [200, 500]
+      register: firewall_outbound
+      changed_when: firewall_outbound.status == 200
+
+    ###########################################################################
+    # VÉRIFICATIONS POST-CONFIGURATION
+    ###########################################################################
+
+    - name: Vérifier le statut BGP
+      ansible.builtin.uri:
+        url: "https://{{ fortigate_ip }}:{{ fortigate_port | default(443) }}/api/v2/monitor/router/bgp/neighbors"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ fortigate_api_key }}"
+        validate_certs: false
+      register: bgp_status
+
+    - name: Afficher le statut BGP
+      ansible.builtin.debug:
+        msg: "BGP Neighbor {{ bgp_peer_ip }}: {{ bgp_status.json.results[0].state | default('Unknown') }}"
+      when: bgp_status.json.results | length > 0
+
+    - name: Résumé de la configuration
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          Configuration Fortigate {{ site_name }} terminée
+          ========================================
+          - VIPs créés pour ports Zerto
+          - BGP configuré (AS {{ bgp_as_number }})
+          - Neighbor BGP: {{ bgp_peer_ip }}
+          - Règles firewall créées
+          - {{ bgp_networks | length }} réseaux annoncés via BGP

@@ -1,0 +1,32 @@
+###############################################################################
+# CONFIGURATION FAILOVER ZERTO
+###############################################################################
+# Description: Configuration pour les scripts de failover
+# Usage: Copier vers failover.conf et remplir les valeurs
+#        cp failover.conf.example failover.conf
+###############################################################################
+
+# API Zerto
+ZERTO_API_ENDPOINT="https://zerto-api.ovh.net"
+ZERTO_API_TOKEN=""  # Ou utiliser ZERTO_USERNAME/ZERTO_PASSWORD
+ZERTO_USERNAME=""
+ZERTO_PASSWORD=""
+
+# VPG Names
+VPG_NAME_RBX_TO_SBG="VPG-RBX-to-SBG-production"
+VPG_NAME_SBG_TO_RBX="VPG-SBG-to-RBX-production"
+
+# Fortigate RBX
+RBX_FORTIGATE_IP="10.1.0.1"
+RBX_FORTIGATE_API_KEY=""
+
+# Fortigate SBG
+SBG_FORTIGATE_IP="10.2.0.1"
+SBG_FORTIGATE_API_KEY=""
+
+# Notifications
+WEBHOOK_URL=""  # Slack/Teams webhook
+ALERT_EMAILS="ops@exemple.com"
+
+# Options
+LOG_LEVEL="INFO"  # DEBUG, INFO, WARNING, ERROR
