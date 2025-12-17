@@ -28,17 +28,6 @@ variable "sbg_fortigate" {
   sensitive = true
 }
 
-variable "bgp_config" {
-  description = "Configuration BGP pour routage dynamique"
-  type = object({
-    as_number      = number
-    rbx_router_id  = string
-    sbg_router_id  = string
-    rbx_networks   = list(string)
-    sbg_networks   = list(string)
-  })
-}
-
 variable "zerto_firewall_rules" {
   description = "Configuration des règles firewall pour Zerto"
   type = object({

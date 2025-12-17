@@ -187,14 +187,12 @@ variable "failover_network_config" {
 ###############################################################################
 
 variable "fortigate_config" {
-  description = "Configuration Fortigate pour le routage"
+  description = "Configuration Fortigate pour les routes statiques de failover"
   type = object({
     sbg_fortigate_ip        = optional(string)
     sbg_fortigate_vip_range = optional(string)
     rbx_fortigate_ip        = optional(string)
     rbx_fortigate_vip_range = optional(string)
-    bgp_peer_ip             = string
-    bgp_as_number           = number
   })
 }
 

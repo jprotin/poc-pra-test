@@ -183,12 +183,10 @@ module "zerto_rbx_to_sbg" {
   target_resource_pool_id  = data.vsphere_compute_cluster.sbg.resource_pool_id
   failover_network_config  = var.sbg_failover_network_config
 
-  # Configuration Fortigate pour routage
+  # Configuration Fortigate pour routes statiques de failover
   fortigate_config = {
     sbg_fortigate_ip        = var.sbg_fortigate_ip
     sbg_fortigate_vip_range = var.sbg_fortigate_vip_range
-    bgp_peer_ip             = var.sbg_bgp_peer_ip
-    bgp_as_number           = var.bgp_as_number
   }
 
   # Zerto API
@@ -266,12 +264,10 @@ module "zerto_sbg_to_rbx" {
   target_resource_pool_id  = data.vsphere_compute_cluster.rbx.resource_pool_id
   failover_network_config  = var.rbx_failover_network_config
 
-  # Configuration Fortigate pour routage
+  # Configuration Fortigate pour routes statiques de failover
   fortigate_config = {
     rbx_fortigate_ip        = var.rbx_fortigate_ip
     rbx_fortigate_vip_range = var.rbx_fortigate_vip_range
-    bgp_peer_ip             = var.rbx_bgp_peer_ip
-    bgp_as_number           = var.bgp_as_number
   }
 
   # Zerto API
@@ -322,15 +318,6 @@ module "zerto_fortigate_config" {
     vip_range           = var.sbg_fortigate_vip_range
     internal_interface  = var.sbg_fortigate_internal_if
     external_interface  = var.sbg_fortigate_external_if
-  }
-
-  # Configuration BGP pour routage dynamique
-  bgp_config = {
-    as_number        = var.bgp_as_number
-    rbx_router_id    = var.rbx_bgp_router_id
-    sbg_router_id    = var.sbg_bgp_router_id
-    rbx_networks     = var.rbx_bgp_networks
-    sbg_networks     = var.sbg_bgp_networks
   }
 
   # Configuration des règles de firewall pour Zerto

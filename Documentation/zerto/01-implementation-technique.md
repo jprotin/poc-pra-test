@@ -38,7 +38,7 @@ Cette implémentation met en place une solution de Plan de Reprise d'Activité (
 | Terraform | >= 1.0 | Infrastructure as Code |
 | Ansible | >= 2.10 | Configuration management |
 | Zerto | 9.x | Réplication et DR |
-| Fortigate | 7.x | Réseau et routage BGP |
+| Fortigate | 7.x | Réseau et routage (BGP vers Azure) |
 | Bash | 5.x | Scripts d'orchestration |
 
 ---
@@ -48,33 +48,37 @@ Cette implémentation met en place une solution de Plan de Reprise d'Activité (
 ### 2.1 Architecture globale
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        OVHcloud Public Cloud                     │
-│                                                                  │
-│  ┌──────────────────────────┐    ┌──────────────────────────┐  │
-│  │   Région RBX (Roubaix)   │    │  Région SBG (Strasbourg) │  │
-│  │                          │    │                          │  │
-│  │  ┌────────────────────┐  │    │  ┌────────────────────┐  │  │
-│  │  │  VMs Production    │  │◄──►│  │  VMs Production    │  │  │
-│  │  │  - App Server      │  │    │  │  - App Server      │  │  │
-│  │  │  - DB Server       │  │    │  │  - DB Server       │  │  │
-│  │  └────────────────────┘  │    │  └────────────────────┘  │  │
-│  │           │              │    │           │              │  │
-│  │  ┌────────▼────────┐     │    │  ┌────────▼────────┐     │  │
-│  │  │  Zerto VRA      │     │    │  │  Zerto VRA      │     │  │
-│  │  │  (Appliance)    │     │    │  │  (Appliance)    │     │  │
-│  │  └────────┬────────┘     │    │  └────────┬────────┘     │  │
-│  │           │              │    │           │              │  │
-│  │  ┌────────▼────────┐     │    │  ┌────────▼────────┐     │  │
-│  │  │  Fortigate FW   │     │    │  │  Fortigate FW   │     │  │
-│  │  │  + BGP          │◄────┼────┼──►  + BGP          │     │  │
-│  │  │  10.1.0.1       │     │    │  │  10.2.0.1       │     │  │
-│  │  └─────────────────┘     │    │  └─────────────────┘     │  │
-│  │                          │    │                          │  │
-│  └──────────────────────────┘    └──────────────────────────┘  │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+                    ┌───────────────────────┐
+                    │   Azure VPN Gateway   │
+                    │   BGP Hub (Failover)  │
+                    └──────────┬────────────┘
+                               │
+                ┌──────────────┼──────────────┐
+                │ Tunnel IPsec │ Tunnel IPsec │
+                │ BGP Primary  │ BGP Backup   │
+                │              │              │
+┌───────────────▼──────┐      │      ┌───────▼─────────────┐
+│   Fortigate RBX      │      │      │   Fortigate SBG     │
+│   10.1.0.1           │◄─────┼──────►   10.2.0.1          │
+│   (Primary)          │  vRack       │   (Backup)          │
+└──────────┬───────────┘              └──────────┬──────────┘
+           │                                     │
+┌──────────▼────────────┐          ┌────────────▼──────────┐
+│  OVHcloud RBX         │          │  OVHcloud SBG         │
+│  ┌─────────────────┐  │          │  ┌─────────────────┐  │
+│  │ VMs Production  │  │◄────────►│  │ VMs Production  │  │
+│  │ - App Server    │  │  Zerto   │  │ - App Server    │  │
+│  │ - DB Server     │  │  VRA     │  │ - DB Server     │  │
+│  └─────────────────┘  │          │  └─────────────────┘  │
+│  VMware vSphere       │          │  VMware vSphere       │
+└───────────────────────┘          └───────────────────────┘
 ```
+
+**Notes importantes** :
+- Les Fortigates sont connectés à Azure VPN Gateway (hub), PAS entre eux
+- Azure gère le failover BGP automatiquement (RBX primary, SBG backup)
+- Le trafic SBG vers Azure transite par vRack puis Fortigate RBX en mode normal
+- Lors d'un failover Zerto, des routes statiques sont ajoutées au Fortigate SBG
 
 ### 2.2 Composants Zerto
 
@@ -120,14 +124,17 @@ VM Source → VRA Source → WAN → VRA Cible → VM Répliquée
 | 4007 | TCP | VRA to VRA |
 | 4008 | TCP | VRA to VRA |
 
-#### Configuration BGP
+#### Configuration réseau Fortigate
 
-- **AS Number** : 65001 (AS privé)
-- **RBX Router ID** : 10.1.0.1
-- **SBG Router ID** : 10.2.0.1
-- **Protocol** : iBGP
-- **Keepalive** : 60s
-- **Hold Timer** : 180s
+**Connexion à Azure VPN Gateway** :
+- **RBX** : Tunnel IPsec/BGP Primary vers Azure
+- **SBG** : Tunnel IPsec/BGP Backup vers Azure
+- **vRack** : Interconnexion privée RBX ⟷ SBG
+
+**Routes statiques de failover** :
+- Ajoutées dynamiquement au Fortigate SBG lors du failover RBX → SBG
+- Ajoutées dynamiquement au Fortigate RBX lors du failover SBG → RBX
+- Permettent le routage des VMs basculées avec leurs IPs d'origine
 
 ---
 
@@ -135,9 +142,9 @@ VM Source → VRA Source → WAN → VRA Cible → VM Répliquée
 
 ### 3.1 Infrastructure OVHcloud
 
-- Compte OVHcloud Public Cloud actif
-- Projet Public Cloud avec crédit suffisant
-- Accès API OVH (Application Key, Secret, Consumer Key)
+- Compte OVHcloud Hosted Private Cloud (VMware vSphere) actif
+- vCenter RBX et SBG configurés et accessibles
+- Accès administrateur vSphere (admin@vsphere.local)
 - Régions RBX et SBG activées
 
 ### 3.2 Accès Zerto
@@ -149,10 +156,11 @@ VM Source → VRA Source → WAN → VRA Cible → VM Répliquée
 
 ### 3.3 Réseau
 
-- VLANs configurés sur les deux sites
-- Fortigate déployés et accessibles
-- Clés API Fortigate
-- Connectivité inter-sites (VPN ou ligne dédiée)
+- VLANs configurés sur les deux sites VMware
+- Fortigate déployés avec tunnels IPsec/BGP vers Azure VPN Gateway
+- Clés API Fortigate pour configuration automatique
+- vRack OVHcloud pour interconnexion privée RBX ⟷ SBG
+- Azure VPN Gateway configuré (gère le failover BGP automatiquement)
 
 ### 3.4 Outils locaux
 
@@ -399,15 +407,16 @@ Responsable de :
 #### Module zerto-network
 
 Responsable de :
-- Configuration des VIPs Fortigate
-- Configuration BGP
-- Règles firewall pour Zerto
-- Vérification du peering BGP
+- Configuration des VIPs Fortigate pour Zerto
+- Règles firewall pour ports Zerto (9071-9073, 4007-4008)
+- Routes statiques commentées (activées par scripts de failover)
+
+**Note** : Le BGP vers Azure est géré dans les modules `/tunnel-ipsec-bgp-*` (hors scope Zerto)
 
 **Variables principales :**
-- `rbx_fortigate` : Config Fortigate RBX
-- `sbg_fortigate` : Config Fortigate SBG
-- `bgp_config` : Configuration BGP
+- `rbx_fortigate` : Config Fortigate RBX (IP, VIP range, interfaces)
+- `sbg_fortigate` : Config Fortigate SBG (IP, VIP range, interfaces)
+- `zerto_firewall_rules` : Ports et plages IP pour Zerto
 
 #### Module zerto-monitoring
 
@@ -462,56 +471,68 @@ terraform destroy
 └─────────────┘                    └─────────────┘
 ```
 
-### 6.2 Configuration BGP
+### 6.2 Configuration réseau Fortigate
 
-Le protocole BGP (Border Gateway Protocol) est utilisé pour :
-- Annoncer les routes entre sites
-- Basculer automatiquement le trafic en cas de failover
-- Assurer la redondance réseau
+#### Architecture réseau
 
-#### Configuration sur RBX
+**Topologie Hub-and-Spoke avec Azure** :
+- **Hub** : Azure VPN Gateway (gère BGP et failover)
+- **Spoke 1** : Fortigate RBX (tunnel IPsec/BGP Primary)
+- **Spoke 2** : Fortigate SBG (tunnel IPsec/BGP Backup)
+- **Interconnexion** : vRack OVHcloud entre RBX et SBG
 
+**Flux réseau en mode normal (RBX actif)** :
 ```
-config router bgp
-    set as 65001
-    set router-id 10.1.0.1
-    set keepalive-timer 60
-    set holdtime-timer 180
-    config neighbor
-        edit "10.2.0.1"
-            set remote-as 65001
-            set activate enable
-        next
-    end
-    config network
-        edit 1
-            set prefix 10.1.0.0/16
-        next
-    end
+VMs RBX → Fortigate RBX → Azure VPN Gateway
+VMs SBG → vRack → Fortigate RBX → Azure VPN Gateway
+```
+
+**Flux réseau après failover (SBG actif)** :
+```
+VMs SBG (incluant VMs failovées de RBX) → Fortigate SBG → Azure VPN Gateway
+```
+
+#### Configuration BGP vers Azure
+
+**Note importante** : Le BGP est configuré entre chaque Fortigate et Azure VPN Gateway, PAS entre les deux Fortigates. Cette configuration est gérée par les modules Terraform situés dans `/tunnel-ipsec-bgp-*` (hors scope Zerto).
+
+#### Routes statiques de failover
+
+Les routes statiques sont ajoutées **dynamiquement** lors d'un failover Zerto :
+
+**Sur Fortigate SBG** (lors failover RBX → SBG) :
+```bash
+config router static
+    edit 0
+        set dst 10.1.1.10/32
+        set device "internal"
+        set comment "VM rbx-app-prod-01 failovée"
+    next
+    edit 0
+        set dst 10.1.1.20/32
+        set device "internal"
+        set comment "VM rbx-db-prod-01 failovée"
+    next
 end
 ```
 
-#### Configuration sur SBG
-
-```
-config router bgp
-    set as 65001
-    set router-id 10.2.0.1
-    set keepalive-timer 60
-    set holdtime-timer 180
-    config neighbor
-        edit "10.1.0.1"
-            set remote-as 65001
-            set activate enable
-        next
-    end
-    config network
-        edit 1
-            set prefix 10.2.0.0/16
-        next
-    end
+**Sur Fortigate RBX** (lors failover SBG → RBX) :
+```bash
+config router static
+    edit 0
+        set dst 10.2.1.10/32
+        set device "internal"
+        set comment "VM sbg-app-prod-01 failovée"
+    next
+    edit 0
+        set dst 10.2.1.20/32
+        set device "internal"
+        set comment "VM sbg-db-prod-01 failovée"
+    next
 end
 ```
+
+Ces routes sont automatiquement configurées par les scripts de failover (`failover-rbx-to-sbg.sh` et `failover-sbg-to-rbx.sh`).
 
 ### 6.3 Règles firewall Zerto
 
@@ -555,16 +576,17 @@ end
 
 ### 6.4 Vérifications réseau
 
-#### Vérifier le peering BGP
+#### Vérifier la connectivité Azure VPN Gateway
+
+**Note** : Les tunnels IPsec/BGP vers Azure sont gérés séparément dans les modules `/tunnel-ipsec-bgp-*`
 
 ```bash
-# Sur Fortigate RBX
-get router info bgp summary
-get router info bgp neighbors 10.2.0.1
+# Vérifier les tunnels IPsec actifs
+get vpn ipsec tunnel summary
 
-# Sur Fortigate SBG
+# Vérifier le statut BGP vers Azure
 get router info bgp summary
-get router info bgp neighbors 10.1.0.1
+# Vous devriez voir le peer Azure VPN Gateway (pas l'autre Fortigate)
 ```
 
 #### Tester la connectivité Zerto
@@ -579,11 +601,18 @@ nc -zv 10.1.0.1 9071
 nc -zv 10.1.0.1 4007
 ```
 
-#### Vérifier les routes annoncées
+#### Vérifier les routes
 
 ```bash
-# Afficher la table de routage BGP
+# Afficher la table de routage complète
+get router info routing-table all
+
+# Vérifier les routes statiques (après failover)
+get router info routing-table static
+
+# Vérifier les routes BGP vers Azure
 get router info routing-table bgp
+# Note: Vous verrez les routes apprises depuis Azure VPN Gateway
 ```
 
 ---
@@ -809,15 +838,19 @@ curl -s -H "Authorization: Bearer $ZERTO_API_TOKEN" \
   https://zerto-api.ovh.net/v1/vpgs | jq '.'
 ```
 
-#### État du peering BGP
+#### État des tunnels et routes
 
 ```bash
-# Sur Fortigate
+# Vérifier les tunnels IPsec vers Azure
+get vpn ipsec tunnel summary
+get vpn ipsec tunnel details
+
+# Vérifier le BGP vers Azure VPN Gateway
 get router info bgp summary
 diagnose ip router bgp all
 
-# Via script
-./zerto/scripts/check-bgp-status.sh
+# Vérifier les routes statiques (après failover)
+get router info routing-table static
 ```
 
 #### Logs Terraform
@@ -851,10 +884,16 @@ curl -X POST -H "Authorization: Bearer $ZERTO_API_TOKEN" \
   https://zerto-api.ovh.net/v1/vpgs/${VPG_ID}/resync
 ```
 
-#### Réinitialiser le peering BGP
+#### Réinitialiser les tunnels vers Azure
+
+**Note** : Utilisez avec précaution - cela va couper temporairement la connectivité
 
 ```bash
-# Sur chaque Fortigate
+# Réinitialiser le tunnel IPsec vers Azure
+diagnose vpn ipsec tunnel down <tunnel_name>
+diagnose vpn ipsec tunnel up <tunnel_name>
+
+# Réinitialiser le peering BGP vers Azure VPN Gateway
 execute router clear bgp all
 ```
 
@@ -895,8 +934,9 @@ execute router clear bgp all
 - [ ] `terraform plan` vérifié
 - [ ] `terraform apply` exécuté avec succès
 - [ ] VPGs créés et en état "MeetingSLA"
-- [ ] BGP peering établi
-- [ ] Test failover réussi
+- [ ] Tunnels IPsec vers Azure opérationnels
+- [ ] Routes statiques de failover validées
+- [ ] Test failover réussi (RBX → SBG et SBG → RBX)
 - [ ] Monitoring configuré
 - [ ] Documentation à jour
 
@@ -904,9 +944,10 @@ execute router clear bgp all
 
 - [Documentation Zerto](https://www.zerto.com/documentation/)
 - [API Zerto](https://www.zerto.com/page/api-documentation/)
-- [Terraform OVH Provider](https://registry.terraform.io/providers/ovh/ovh/latest/docs)
+- [Terraform vSphere Provider](https://registry.terraform.io/providers/hashicorp/vsphere/latest/docs)
+- [OVHcloud Hosted Private Cloud](https://docs.ovh.com/fr/private-cloud/)
 - [Fortigate Administration Guide](https://docs.fortinet.com/)
-- [BGP RFC 4271](https://datatracker.ietf.org/doc/html/rfc4271)
+- [Azure VPN Gateway BGP](https://learn.microsoft.com/fr-fr/azure/vpn-gateway/vpn-gateway-bgp-overview)
 
 ### 10.3 Glossaire
 
@@ -919,7 +960,9 @@ execute router clear bgp all
 | **Failover** | Bascule vers le site de secours |
 | **Failback** | Retour au site principal |
 | **Journal** | Historique des modifications pour point-in-time recovery |
-| **iBGP** | Internal BGP - BGP entre routeurs du même AS |
+| **vRack** | Réseau privé OVHcloud interconnectant les datacenters |
+| **vSphere** | Plateforme de virtualisation VMware |
+| **Hub-and-Spoke** | Topologie réseau avec un hub central (Azure) et des spokes (RBX, SBG) |
 
 ---
 

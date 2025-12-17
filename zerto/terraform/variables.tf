@@ -364,22 +364,6 @@ variable "rbx_fortigate_external_if" {
   default     = "port2"
 }
 
-variable "rbx_bgp_peer_ip" {
-  description = "IP du peer BGP pour RBX"
-  type        = string
-}
-
-variable "rbx_bgp_router_id" {
-  description = "Router ID BGP pour RBX"
-  type        = string
-}
-
-variable "rbx_bgp_networks" {
-  description = "Réseaux annoncés via BGP depuis RBX"
-  type        = list(string)
-  default     = ["10.1.0.0/16"]
-}
-
 ###############################################################################
 # VARIABLES FORTIGATE - SBG
 ###############################################################################
@@ -413,36 +397,9 @@ variable "sbg_fortigate_external_if" {
   default     = "port2"
 }
 
-variable "sbg_bgp_peer_ip" {
-  description = "IP du peer BGP pour SBG"
-  type        = string
-}
-
-variable "sbg_bgp_router_id" {
-  description = "Router ID BGP pour SBG"
-  type        = string
-}
-
-variable "sbg_bgp_networks" {
-  description = "Réseaux annoncés via BGP depuis SBG"
-  type        = list(string)
-  default     = ["10.2.0.0/16"]
-}
-
 ###############################################################################
-# VARIABLES BGP - CONFIGURATION GLOBALE
+# VARIABLES FORTIGATE - GÉNÉRAL
 ###############################################################################
-
-variable "bgp_as_number" {
-  description = "Numéro AS BGP pour le routage dynamique"
-  type        = number
-  default     = 65001
-
-  validation {
-    condition     = var.bgp_as_number >= 64512 && var.bgp_as_number <= 65535
-    error_message = "Le numéro AS doit être un AS privé entre 64512 et 65535."
-  }
-}
 
 variable "fortigate_mgmt_port" {
   description = "Port de management des Fortigates"
