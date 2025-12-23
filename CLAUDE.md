@@ -52,29 +52,17 @@ Utilise une approche "Documentation as Code" segmentée par fonctionnalité :
 Organise le code par domaine métier (Feature-based) et non par type technique.
 ### Exemple de structure cible:
 src/
-
   features/
-
-    feature1/       # Tout ce qui concerne la feature 1
-
+    feature1/       
       components/
-
       services/
-
       hooks/
-
       types/
-
       tests/
-
-    feature2/       # Tout ce qui concerne la feature 2
-
-  shared/           # Composants et utilitaires partagés
-
+    feature2/       
+  shared/           
     ui/
-
     lib/
-
     utils/
 
 ## 6. Utilisation des Outils et Mémoire
