@@ -2,6 +2,60 @@
 
 Ce document centralise toutes les variables d'environnement utilisées dans le projet POC PRA (Proof of Concept - Plan de Reprise d'Activité). Les variables sont organisées par brique technique avec leur niveau de sensibilité et des exemples de valeurs.
 
+## 🚀 Quick Start - Configuration des Variables
+
+### Fichiers de Configuration
+
+Le projet utilise deux fichiers pour gérer les variables d'environnement :
+
+1. **`.env.dist`** : Template pour les variables **non sensibles** (🟢 et 🟠)
+2. **`.env-protected.dist`** : Template pour les variables **sensibles** (🔴)
+
+### Installation
+
+```bash
+# 1. Copier les templates
+cp .env.dist .env
+cp .env-protected.dist .env-protected
+
+# 2. Éditer les fichiers avec vos valeurs réelles
+nano .env
+nano .env-protected
+
+# 3. Charger les variables dans votre shell
+source scripts/utils/load-env.sh --with-protected --export-terraform
+
+# 4. Vérifier que les variables requises sont définies
+source scripts/utils/load-env.sh --check
+```
+
+### Utilisation avec Terraform
+
+```bash
+# Option 1: Charger automatiquement les variables
+source scripts/utils/load-env.sh --export-terraform
+cd terraform
+terraform plan
+
+# Option 2: Utiliser un fichier terraform.tfvars
+# (voir terraform/terraform.tfvars.example)
+```
+
+### Utilisation en Production avec Azure Key Vault
+
+```bash
+# Charger les secrets depuis Azure Key Vault
+export AZURE_KEYVAULT_NAME=poc-pra-vault
+source scripts/utils/load-env.sh --from-vault azure-keyvault --export-terraform
+```
+
+### ⚠️ Sécurité
+
+- **NE JAMAIS** committer les fichiers `.env` ou `.env-protected` dans Git
+- Les fichiers `.env*` sont déjà dans `.gitignore`
+- En production, utiliser un gestionnaire de secrets (Azure Key Vault, HashiCorp Vault, etc.)
+- Rotation régulière des secrets (voir calendrier dans `.env-protected.dist`)
+
 ## Table des matières
 
 1. [Azure VPN Gateway](#1-azure-vpn-gateway)

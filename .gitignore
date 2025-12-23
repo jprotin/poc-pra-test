@@ -162,9 +162,16 @@ secrets/
 *.secret
 *.secrets
 credentials.json
+
+# Fichiers d'environnement (secrets)
 .env
 .env.local
 .env.*.local
+.env-protected
+
+# ⚠️  EXCEPTION: Les fichiers .dist sont des templates et DOIVENT être commités
+!.env.dist
+!.env-protected.dist
 
 # Certificats et clés privées
 *.crt
