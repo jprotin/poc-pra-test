@@ -46,6 +46,7 @@ Utilise une approche "Documentation as Code" segmentée par fonctionnalité :
 * **Décision :** Solution technique choisie.
 * **Alternatives rejetées :** Ce qu'on a écarté et pourquoi.
 * **Conséquences :** Impacts positifs et négatifs (dette technique, performance, coût).
+```
 
 ## 5. Architecture du Projet (Screaming Architecture)
 Organise le code par domaine métier (Feature-based) et non par type technique.
