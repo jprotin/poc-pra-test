@@ -51,6 +51,8 @@ Utilise une approche "Documentation as Code" segmentée par fonctionnalité :
 ## 5. Architecture du Projet (Screaming Architecture)
 Organise le code par domaine métier (Feature-based) et non par type technique.
 ### Exemple de structure cible:
+
+```
 src/
   features/
     feature1/       
@@ -64,6 +66,7 @@ src/
     ui/
     lib/
     utils/
+```
 
 ## 6. Utilisation des Outils et Mémoire
 

@@ -14,7 +14,7 @@ Ce projet déploie une infrastructure hybride complète avec VPN IPsec/BGP entre
 ## 🏗️ Architecture
 
 ```
-┌─────────────── HUB AZURE ───────────────┐
+┌─────────────── HUB AZURE ────────────────┐
 │                                          │
 │     VPN Gateway (BGP enabled)            │
 │     IP: [Azure Public IP]                │
