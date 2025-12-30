@@ -6,7 +6,105 @@
 
 ---
 
-## 1. Contexte & Problématique
+## 1. Infrastructure Actuelle
+
+### Configuration Zerto en Production
+
+**Plateforme :**
+- **Hébergeur :** OVH Cloud
+- **Hyperviseur :** VMware vSphere
+- **Solution PRA :** Zerto Virtual Replication
+
+**Périmètre de Protection :**
+- **Site Primaire (RBX)** : 36 VMs protégées
+- **Site Secours (SBG)** : 16 VMs (réplicas + services annexes)
+- **Total :** 52 VMs sous surveillance Zerto
+
+**Performances Réplication :**
+- **RPO Moyen :** 8 secondes ⭐ (objectif standard : 5 minutes)
+- **Mode :** Continuous Data Protection (CDP) - Réplication de blocs en continu
+- **Consistance :** Crash Consistent (par défaut)
+
+### Architecture des Bases de Données
+
+Les bases de données sont **installées directement sur les VMs** (non externalisées). Types de DB concernés :
+- MySQL/MariaDB (applications métier)
+- PostgreSQL (backoffice, analytics)
+- MongoDB (caching, sessions)
+
+**Mode de réplication :** Crash Consistent au niveau bloc (pas de coordination applicative).
+
+---
+
+## 2. Analyse Technique : Crash Consistent vs Application Consistent
+
+### Qu'est-ce que le "Crash Consistent" ?
+
+Zerto capture les **I/O disque en continu** au niveau bloc, sans coordination avec les applications. C'est comme si :
+- On coupait l'alimentation de la VM brutalement
+- On redémarrait la VM depuis le dernier snapshot (≈8s avant l'incident)
+
+**Pour les bases de données, cela signifie :**
+- Les données écrites sur disque sont cohérentes (pas de blocs corrompus)
+- Les transactions en mémoire (buffers non flushés) peuvent être perdues
+- La DB effectue un **recovery automatique** au démarrage (replay des WAL/redo logs)
+
+### Avantages du Mode Crash Consistent
+
+✅ **Performance :** Aucun overhead sur les VMs en production (pas de VSS, pas de scripts)
+✅ **Simplicité :** Pas de configuration applicative requise
+✅ **Compatibilité :** Fonctionne avec toutes les applications
+✅ **RPO Optimal :** 8s de perte de données maximum (excellent)
+
+### Risques Identifiés pour les Bases de Données
+
+| Risque | Impact | Probabilité | Mitigation |
+|--------|--------|-------------|------------|
+| **Perte de transactions en cours** | 🟡 Moyen | 🟢 Faible (8s de fenêtre) | Acceptable pour données non critiques |
+| **Temps de recovery long** | 🟡 Moyen | 🟡 Moyen (dépend de la charge) | Prévoir +2-5min au démarrage |
+| **Incohérence si opération critique** | 🔴 Élevé | 🟢 Très faible | Monitoring des opérations longues (VACUUM, REINDEX) |
+| **Corruption si DB mal configurée** | 🔴 Critique | 🟢 Très faible | ✅ Vérifier journaling activé (InnoDB, WAL) |
+
+### Évaluation par Type de DB
+
+| Base de Données | Crash Consistent Safe ? | Justification | Recommandation |
+|-----------------|:-----------------------:|---------------|----------------|
+| **PostgreSQL** | ✅ OUI | WAL assure la cohérence, recovery automatique rapide | Crash Consistent OK |
+| **MySQL (InnoDB)** | ✅ OUI | InnoDB log buffer + doublewrite buffer | Crash Consistent OK |
+| **MySQL (MyISAM)** | ⚠️ RISQUÉ | Pas de transactions, risque de corruption | **Migrer vers InnoDB** ou Application Consistent |
+| **MongoDB** | ✅ OUI | Journaling activé par défaut (WiredTiger) | Crash Consistent OK si `journal=true` |
+| **Oracle** | ✅ OUI | Redo logs + checkpoint automatique | Crash Consistent OK mais Application Consistent préférable |
+| **SQL Server** | ✅ OUI | Transaction log assure la cohérence | Crash Consistent OK |
+
+### Quand Passer en Application Consistent ?
+
+Envisager le mode **Application Consistent** (avec VSS/scripts) si :
+
+❌ **Vous avez des DB MyISAM** (risque de corruption)
+❌ **Opérations batch longues** (> 1h) qui ne doivent pas être interrompues
+❌ **Exigence RPO = 0** (aucune perte tolérée)
+❌ **Réglementations strictes** (finance, santé) nécessitant des recovery garanties
+
+⚠️ **Inconvénients de l'Application Consistent :**
+- Impact performance (VSS freeze les I/O temporairement)
+- Complexité (scripts à maintenir pour chaque DB)
+- RPO dégradé (snapshots toutes les 5-15min au lieu de 8s)
+
+### Verdict pour la Configuration Actuelle
+
+🟢 **Crash Consistent avec RPO 8s est ADAPTÉ** si :
+- ✅ Les DB utilisent des moteurs transactionnels (InnoDB, PostgreSQL WAL, MongoDB WiredTiger)
+- ✅ La perte de 8s de transactions est acceptable métier
+- ✅ Les applications gèrent les retry/idempotence
+
+🔴 **Action requise :**
+- [ ] **Vérifier** que toutes les DB MySQL utilisent InnoDB (pas MyISAM)
+- [ ] **Tester** un failover réel pour mesurer le temps de recovery des DB
+- [ ] **Documenter** le RPO métier acceptable par application (8s OK ?)
+
+---
+
+## 3. Contexte & Problématique - Gestion des CRON
 
 ### Situation Actuelle
 Les applications déployées sur les VMs (RBX primaire, SBG secours) contiennent des **tâches CRON** critiques. Lors d'un incident et du retour à la normale, une **fenêtre de risque** apparaît :
@@ -18,9 +116,9 @@ Les applications déployées sur les VMs (RBX primaire, SBG secours) contiennent
 
 ---
 
-## 2. Processus PRA Actuel - Analyse Détaillée
+## 4. Processus PRA Actuel - Analyse Détaillée
 
-### 2.1 Phase 1 : Détection de l'Incident (RBX → SBG)
+### 4.1 Phase 1 : Détection de l'Incident (RBX → SBG)
 
 | Étape | Action | Responsable | Durée |
 |-------|--------|-------------|-------|
@@ -35,7 +133,7 @@ Les applications déployées sur les VMs (RBX primaire, SBG secours) contiennent
 
 ---
 
-### 2.2 Phase 2 : Retour à la Normale (SBG → RBX) - **ZONE À RISQUE**
+### 4.2 Phase 2 : Retour à la Normale (SBG → RBX) - **ZONE À RISQUE**
 
 | Étape | Action | État des CRON | Risque |
 |-------|--------|---------------|--------|
@@ -51,7 +149,7 @@ Les applications déployées sur les VMs (RBX primaire, SBG secours) contiennent
 
 ---
 
-## 3. Solutions Proposées
+## 5. Solutions Proposées
 
 ### Solution 1 : **Mode Pause VMware Automatique** (Recommandée)
 
@@ -241,7 +339,7 @@ done
 
 ---
 
-## 4. Matrice de Comparaison
+## 6. Matrice de Comparaison
 
 | Critère | Solution 1<br>(VMware Pause) | Solution 2<br>(Fichier Lock) | Solution 3<br>(Systemd + Consul) | Solution 4<br>(Zerto Scripts) |
 |---------|:---:|:---:|:---:|:---:|
@@ -255,7 +353,7 @@ done
 
 ---
 
-## 5. Recommandation Finale
+## 7. Recommandation Finale
 
 ### Approche Hybride : **Solution 1 + Solution 2**
 
@@ -275,7 +373,7 @@ done
 
 ---
 
-## 6. Plan d'Action
+## 8. Plan d'Action
 
 ### Sprint 1 : Sécurisation Immédiate (3 jours)
 - [ ] Configurer les VMs RBX avec démarrage en mode suspendu
@@ -297,7 +395,7 @@ done
 
 ---
 
-## 7. Métriques de Succès
+## 9. Métriques de Succès
 
 | KPI | Cible | Mesure |
 |-----|-------|--------|
@@ -308,28 +406,47 @@ done
 
 ---
 
-## 8. Annexes
+## 10. Annexes
 
 ### A. Checklist Failback (Version Manuelle)
 
 ```
-☐ 1. Vérifier l'état de réplication Zerto (RPO < 5min)
+☐ 1. Vérifier l'état de réplication Zerto (RPO < 10s, target : 8s)
 ☐ 2. Arrêter les CRON sur SBG (systemctl stop cron)
 ☐ 3. Lancer la synchronisation finale Zerto
 ☐ 4. Démarrer les VMs RBX en mode pause (ou vérifier auto-pause)
 ☐ 5. Reprendre les VMs RBX (resume)
 ☐ 6. Tester connectivité réseau RBX (ping, curl)
-☐ 7. Tester accès base de données RBX (select 1)
-☐ 8. Vérifier l'intégrité des montages NFS/Volumes
-☐ 9. Lancer 1 CRON manuellement sur RBX (validation)
-☐ 10. Basculer le DNS/LB vers RBX
-☐ 11. Vérifier absence d'erreurs (logs applicatifs)
-☐ 12. Arrêter les VMs SBG
-☐ 13. Réactiver la réplication Zerto (RBX → SBG)
-☐ 14. Post-mortem (documenter les anomalies)
+☐ 7. Vérifier les logs de recovery des DB (PostgreSQL, MySQL, MongoDB)
+    - PostgreSQL : grep "database system is ready" /var/log/postgresql/*.log
+    - MySQL : grep "ready for connections" /var/log/mysql/error.log
+    - MongoDB : grep "WiredTiger recovery" /var/log/mongodb/mongod.log
+☐ 8. Tester accès base de données RBX (select 1, insert test)
+☐ 9. Vérifier l'intégrité des montages NFS/Volumes
+☐ 10. Lancer 1 CRON manuellement sur RBX (validation)
+☐ 11. Basculer le DNS/LB vers RBX
+☐ 12. Vérifier absence d'erreurs (logs applicatifs)
+☐ 13. Arrêter les VMs SBG
+☐ 14. Réactiver la réplication Zerto (RBX → SBG)
+☐ 15. Post-mortem (documenter les anomalies, temps de recovery DB)
 ```
 
 ### B. Commandes Utiles
+
+#### Gestion des VMs
+
+```bash
+# Pause d'une VM via vSphere CLI
+vim-cmd vmsvc/power.suspend <vmid>
+
+# Resume d'une VM
+vim-cmd vmsvc/power.on <vmid>
+
+# Lister les VMs et leur état
+vim-cmd vmsvc/getallvms
+```
+
+#### Gestion des CRON
 
 ```bash
 # Vérifier l'état des CRON
@@ -342,11 +459,82 @@ ls -la /etc/cron.d/
 # Vérifier les logs CRON
 grep CRON /var/log/syslog | tail -50
 
-# Pause d'une VM via vSphere CLI
-vim-cmd vmsvc/power.suspend <vmid>
+# Arrêter temporairement les CRON
+systemctl stop cron
+systemctl mask cron   # Empêche le redémarrage automatique
+```
 
-# Resume d'une VM
-vim-cmd vmsvc/power.on <vmid>
+#### Vérification des Bases de Données
+
+```bash
+# PostgreSQL - Vérifier le mode recovery
+psql -U postgres -c "SELECT pg_is_in_recovery();"
+
+# PostgreSQL - Vérifier le WAL (Write-Ahead Log)
+psql -U postgres -c "SELECT pg_current_wal_lsn();"
+
+# MySQL - Vérifier le moteur de stockage (InnoDB recommandé)
+mysql -e "SELECT TABLE_SCHEMA, TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE ENGINE='MyISAM';"
+
+# MySQL - Vérifier le statut InnoDB
+mysql -e "SHOW ENGINE INNODB STATUS\G" | grep -A 20 "LOG"
+
+# MongoDB - Vérifier le journaling
+mongo --eval "db.serverStatus().storageEngine.persistent"
+mongo --eval "db.adminCommand({getCmdLineOpts: 1}).parsed.storage.journal.enabled"
+
+# Temps de recovery après crash (vérifier les logs)
+# PostgreSQL
+grep "database system was interrupted" /var/log/postgresql/postgresql-*.log -A 10
+
+# MySQL
+grep "InnoDB: Starting crash recovery" /var/log/mysql/error.log -A 10
+
+# MongoDB
+grep "WiredTiger recovery" /var/log/mongodb/mongod.log -A 10
+```
+
+#### Monitoring Zerto
+
+```bash
+# Vérifier le RPO actuel (via API Zerto si disponible)
+curl -k -u admin:password https://zerto-vra:9669/v1/vpgs | jq '.[] | {name: .VpgName, rpo: .ActualRPO}'
+
+# Vérifier l'état de réplication
+# (remplacer par la commande spécifique à votre setup Zerto/OVH)
+```
+
+### C. Points de Vigilance - Crash Consistent
+
+**À vérifier impérativement avant un failover :**
+
+1. **MySQL :**
+   - ✅ Toutes les tables en InnoDB (pas de MyISAM)
+   - ✅ `innodb_flush_log_at_trx_commit = 1` (durabilité ACID)
+   - ✅ `innodb_doublewrite = ON` (protection contre corruption)
+
+2. **PostgreSQL :**
+   - ✅ `fsync = on` (garantie écriture sur disque)
+   - ✅ `full_page_writes = on` (protection WAL)
+   - ✅ Archivage WAL configuré pour PITR (Point-In-Time Recovery)
+
+3. **MongoDB :**
+   - ✅ `storage.journal.enabled = true` (obligatoire pour WiredTiger)
+   - ✅ `writeConcern` configuré pour durabilité (w: majority)
+
+**Commandes de validation :**
+
+```bash
+# MySQL
+mysql -e "SHOW VARIABLES LIKE 'innodb_flush_log_at_trx_commit';"
+mysql -e "SHOW VARIABLES LIKE 'innodb_doublewrite';"
+
+# PostgreSQL
+psql -U postgres -c "SHOW fsync;"
+psql -U postgres -c "SHOW full_page_writes;"
+
+# MongoDB
+mongo --eval "db.serverCmdLineOpts().parsed.storage.journal"
 ```
 
 ---
