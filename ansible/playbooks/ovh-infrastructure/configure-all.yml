@@ -1,0 +1,166 @@
+---
+# ==============================================================================
+# Playbook Ansible - Configuration complète infrastructure OVH
+# ==============================================================================
+# Description : Configuration post-déploiement de toutes les VMs
+#               (Docker + MySQL) déployées via Terraform
+# Usage       : ansible-playbook -i inventory.yml configure-all.yml
+# ==============================================================================
+
+- name: "📋 Configuration complète de l'infrastructure OVH VMware"
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  pre_tasks:
+    - name: "🔍 Afficher informations de l'hôte"
+      debug:
+        msg: "Configuration de {{ inventory_hostname }} ({{ ansible_host }}) - Role: {{ role }}"
+
+    - name: "⏳ Attendre que cloud-init soit terminé"
+      command: cloud-init status --wait
+      changed_when: false
+      timeout: 600
+
+  tasks:
+    - name: "✅ Vérifier connectivité Internet"
+      uri:
+        url: https://www.google.com
+        timeout: 10
+      register: internet_check
+      failed_when: false
+
+    - name: "📊 Afficher statut connectivité"
+      debug:
+        msg: "Connectivité Internet: {{ 'OK' if internet_check.status == 200 else 'FAILED' }}"
+
+# ==============================================================================
+# Configuration spécifique VMs Docker
+# ==============================================================================
+
+- name: "🐳 Configuration VMs Docker"
+  hosts: docker_vms
+  become: yes
+
+  tasks:
+    - name: "🔍 Vérifier installation Docker"
+      command: docker --version
+      register: docker_version_output
+      changed_when: false
+
+    - name: "📊 Afficher version Docker"
+      debug:
+        msg: "{{ docker_version_output.stdout }}"
+
+    - name: "🔍 Vérifier installation Docker Compose"
+      command: docker-compose --version
+      register: docker_compose_version_output
+      changed_when: false
+
+    - name: "📊 Afficher version Docker Compose"
+      debug:
+        msg: "{{ docker_compose_version_output.stdout }}"
+
+    - name: "🧪 Tester Docker avec conteneur hello-world"
+      docker_container:
+        name: test-hello-world
+        image: hello-world
+        state: started
+        auto_remove: yes
+      register: docker_test
+
+    - name: "✅ Docker opérationnel"
+      debug:
+        msg: "Docker est correctement configuré et fonctionnel"
+
+# ==============================================================================
+# Configuration spécifique VMs MySQL
+# ==============================================================================
+
+- name: "🐬 Configuration VMs MySQL"
+  hosts: mysql_vms
+  become: yes
+
+  tasks:
+    - name: "🔍 Vérifier service MySQL"
+      systemd:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: "📊 Afficher statut MySQL"
+      command: systemctl status mysql --no-pager
+      register: mysql_status
+      changed_when: false
+
+    - name: "🔍 Vérifier version MySQL"
+      command: mysql --version
+      register: mysql_version_output
+      changed_when: false
+
+    - name: "📊 Afficher version MySQL"
+      debug:
+        msg: "{{ mysql_version_output.stdout }}"
+
+    - name: "🧪 Tester connexion MySQL locale"
+      command: mysql -u root -e "SELECT VERSION();"
+      register: mysql_test
+      changed_when: false
+
+    - name: "✅ MySQL opérationnel"
+      debug:
+        msg: "MySQL est correctement configuré et fonctionnel"
+
+# ==============================================================================
+# Tests de connectivité inter-VMs
+# ==============================================================================
+
+- name: "🔗 Tests de connectivité Docker → MySQL"
+  hosts: docker_vms
+  become: no
+
+  vars:
+    mysql_ip_rbx: "{{ hostvars['mysql-rbx']['ansible_host'] }}"
+    mysql_ip_sbg: "{{ hostvars['mysql-sbg']['ansible_host'] }}"
+
+  tasks:
+    - name: "🔍 Test ping vers MySQL (même site)"
+      ping:
+        data: ping
+      delegate_to: "{{ 'mysql-rbx' if site == 'rbx' else 'mysql-sbg' }}"
+
+    - name: "🔍 Test connexion MySQL port 3306 (même site)"
+      wait_for:
+        host: "{{ mysql_ip_rbx if site == 'rbx' else mysql_ip_sbg }}"
+        port: 3306
+        timeout: 10
+      register: mysql_port_check
+
+    - name: "✅ Connectivité MySQL OK"
+      debug:
+        msg: "Connexion au serveur MySQL {{ mysql_ip_rbx if site == 'rbx' else mysql_ip_sbg }} réussie"
+
+# ==============================================================================
+# Résumé final
+# ==============================================================================
+
+- name: "📊 Résumé de la configuration"
+  hosts: localhost
+  gather_facts: no
+
+  tasks:
+    - name: "✅ Configuration terminée avec succès"
+      debug:
+        msg: |
+          ╔═══════════════════════════════════════════════════════════════╗
+          ║  Configuration de l'infrastructure OVH terminée avec succès  ║
+          ╠═══════════════════════════════════════════════════════════════╣
+          ║  ✅ VMs Docker configurées et opérationnelles                 ║
+          ║  ✅ VMs MySQL configurées et opérationnelles                  ║
+          ║  ✅ Connectivité réseau vérifiée                              ║
+          ║                                                               ║
+          ║  Prochaines étapes :                                          ║
+          ║  1. Déployer applications via docker-compose                  ║
+          ║  2. Configurer Zerto VPG (via Terraform)                      ║
+          ║  3. Tester failover RBX → SBG                                 ║
+          ╚═══════════════════════════════════════════════════════════════╝

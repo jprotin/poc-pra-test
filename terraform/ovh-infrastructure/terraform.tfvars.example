@@ -1,0 +1,130 @@
+# ==============================================================================
+# Terraform Variables - Example Configuration
+# ==============================================================================
+# Description : Fichier d'exemple pour la configuration des variables Terraform
+# Usage       : Copier ce fichier vers terraform.tfvars et ajuster les valeurs
+#               cp terraform.tfvars.example terraform.tfvars
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Configuration générale
+# ------------------------------------------------------------------------------
+
+environment  = "prod"
+project_name = "pra"
+owner        = "devops-team"
+
+# ------------------------------------------------------------------------------
+# Configuration vSphere RBX
+# ------------------------------------------------------------------------------
+
+vsphere_rbx_server     = "pcc-xxx-xxx-xxx.ovh.com"
+vsphere_rbx_user       = "admin@vsphere.local"
+vsphere_rbx_password   = "CHANGE_ME_RBX_PASSWORD"
+vsphere_rbx_datacenter = "Datacenter-RBX"
+vsphere_rbx_cluster    = "Cluster1"
+vsphere_rbx_datastore  = "datastore1"
+
+# ------------------------------------------------------------------------------
+# Configuration vSphere SBG
+# ------------------------------------------------------------------------------
+
+vsphere_sbg_server     = "pcc-yyy-yyy-yyy.ovh.com"
+vsphere_sbg_user       = "admin@vsphere.local"
+vsphere_sbg_password   = "CHANGE_ME_SBG_PASSWORD"
+vsphere_sbg_datacenter = "Datacenter-SBG"
+vsphere_sbg_cluster    = "Cluster1"
+vsphere_sbg_datastore  = "datastore1"
+
+# ------------------------------------------------------------------------------
+# Configuration vRack (Réseaux privés)
+# ------------------------------------------------------------------------------
+
+vrack_vlan_rbx_id        = 100
+vrack_vlan_rbx_cidr      = "10.100.0.0/24"
+vrack_vlan_sbg_id        = 200
+vrack_vlan_sbg_cidr      = "10.200.0.0/24"
+vrack_vlan_backbone_id   = 900
+vrack_vlan_backbone_cidr = "10.255.0.0/30"
+
+# ------------------------------------------------------------------------------
+# Configuration VMs - Général
+# ------------------------------------------------------------------------------
+
+vm_template           = "ubuntu-22.04-template"
+admin_username        = "vmadmin"
+admin_ssh_public_key  = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... votre clé publique SSH"
+
+# ------------------------------------------------------------------------------
+# Adresses IP VMs
+# ------------------------------------------------------------------------------
+
+vm_docker_rbx_ip = "10.100.0.10"
+vm_mysql_rbx_ip  = "10.100.0.11"
+vm_docker_sbg_ip = "10.200.0.10"
+vm_mysql_sbg_ip  = "10.200.0.11"
+rbx_gateway_ip   = "10.100.0.1"
+sbg_gateway_ip   = "10.200.0.1"
+rbx_domain_name  = "rbx.prod.local"
+sbg_domain_name  = "sbg.prod.local"
+
+# ------------------------------------------------------------------------------
+# Configuration VMs Docker
+# ------------------------------------------------------------------------------
+
+docker_vm_num_cpus             = 4
+docker_vm_memory_mb            = 8192
+docker_vm_disk_size_gb         = 100
+docker_vm_additional_disk_size_gb = 0
+docker_version                 = "24.0"
+docker_compose_version         = "2.23.0"
+enable_docker_monitoring       = true
+
+# ------------------------------------------------------------------------------
+# Configuration VMs MySQL
+# ------------------------------------------------------------------------------
+
+mysql_vm_num_cpus          = 4
+mysql_vm_memory_mb         = 16384
+mysql_vm_disk_size_gb      = 50
+mysql_vm_data_disk_size_gb = 200
+mysql_vm_log_disk_size_gb  = 0
+mysql_version              = "8.0"
+mysql_root_password        = "CHANGE_ME_MYSQL_ROOT_PASSWORD_MIN_16_CHARS"
+mysql_database_name_rbx    = "app_rbx_db"
+mysql_database_name_sbg    = "app_sbg_db"
+mysql_app_user             = "appuser"
+mysql_app_password         = "CHANGE_ME_MYSQL_APP_PASSWORD"
+mysql_innodb_buffer_pool_size = "12G"
+mysql_max_connections      = 500
+enable_mysql_backup        = true
+mysql_backup_retention_days = 7
+enable_mysql_monitoring    = true
+
+# ------------------------------------------------------------------------------
+# Configuration FortiGate
+# ------------------------------------------------------------------------------
+
+fortigate_rbx_hostname           = "192.168.10.1"
+fortigate_rbx_token              = "CHANGE_ME_FORTIGATE_RBX_API_TOKEN"
+fortigate_rbx_public_ip          = "51.210.100.50"
+fortigate_rbx_internal_interface = "port1"
+fortigate_rbx_external_interface = "port2"
+
+fortigate_sbg_hostname           = "192.168.20.1"
+fortigate_sbg_token              = "CHANGE_ME_FORTIGATE_SBG_API_TOKEN"
+fortigate_sbg_public_ip          = "51.210.200.75"
+fortigate_sbg_internal_interface = "port1"
+fortigate_sbg_external_interface = "port2"
+
+enable_nat_docker_rbx      = true
+enable_nat_docker_sbg      = true
+enable_fortigate_logging   = true
+
+# ------------------------------------------------------------------------------
+# Sécurité
+# ------------------------------------------------------------------------------
+
+enable_firewall          = true
+allowed_ssh_cidrs        = ["10.0.0.0/8"]
+enable_automatic_updates = true
