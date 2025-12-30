@@ -44,6 +44,8 @@ print_banner() {
 ║                                                                              ║
 ║                  🔹 VPN Gateway Azure avec BGP                               ║
 ║                  🔹 Tunnels IPsec vers StrongSwan et FortiGate               ║
+║                  🔹 Infrastructure Applicative OVH VMware (Docker + MySQL)   ║
+║                  🔹 Zerto PRA avec réplication continue                      ║
 ║                  🔹 Failover automatique RBX ↔ SBG                          ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -85,17 +87,19 @@ Usage: ./deploy.sh [OPTIONS]
 Déploie l'infrastructure POC PRA selon les options choisies.
 
 OPTIONS:
-  --all              Déployer toute l'infrastructure (VPN + StrongSwan + OVH)
+  --all              Déployer toute l'infrastructure (VPN + StrongSwan + OVH + OVH-Infra)
   --vpn              Déployer uniquement le VPN Gateway Azure
   --strongswan       Déployer le VPN Gateway + VM StrongSwan + Tunnel statique
   --ovh              Déployer le VPN Gateway + Tunnels OVH (RBX + SBG)
+  --ovh-infra        Déployer l'infrastructure applicative OVH VMware (Docker + MySQL + Zerto)
   --terraform-only   Exécuter uniquement Terraform (pas Ansible)
   --ansible-only     Exécuter uniquement Ansible (suppose Terraform déjà fait)
   --skip-checks      Ignorer les vérifications de prérequis
   --help             Afficher cette aide
 
 EXEMPLES:
-  ./deploy.sh --all              # Déploiement complet
+  ./deploy.sh --all              # Déploiement complet (VPN + OVH + OVH-Infra)
+  ./deploy.sh --ovh-infra        # Déployer uniquement infrastructure applicative OVH
   ./deploy.sh --strongswan       # Déployer VPN + StrongSwan uniquement
   ./deploy.sh --vpn              # Déployer uniquement le VPN Gateway
   ./deploy.sh --terraform-only   # Terraform uniquement
@@ -295,6 +299,136 @@ run_connectivity_tests() {
 }
 
 # ==============================================================================
+# Fonctions de Déploiement OVH Infrastructure Applicative
+# ==============================================================================
+
+deploy_ovh_infrastructure_terraform() {
+    log_step "Déploiement de l'infrastructure OVH VMware avec Terraform..."
+
+    local OVH_TERRAFORM_DIR="${TERRAFORM_DIR}/ovh-infrastructure"
+
+    cd "${OVH_TERRAFORM_DIR}"
+
+    # Vérifier que terraform.tfvars existe
+    if [ ! -f "${OVH_TERRAFORM_DIR}/terraform.tfvars" ]; then
+        log_error "Le fichier terraform/ovh-infrastructure/terraform.tfvars n'existe pas"
+        log_info "Copiez l'exemple : cp ${OVH_TERRAFORM_DIR}/terraform.tfvars.example ${OVH_TERRAFORM_DIR}/terraform.tfvars"
+        exit 1
+    fi
+
+    # Initialiser Terraform
+    if [ ! -d ".terraform" ]; then
+        log_info "Initialisation de Terraform pour OVH Infrastructure..."
+        terraform init -upgrade
+    else
+        log_info "Terraform déjà initialisé pour OVH Infrastructure"
+    fi
+
+    # Valider la configuration
+    log_info "Validation de la configuration Terraform OVH..."
+    terraform validate
+
+    # Planifier le déploiement
+    log_info "Planification du déploiement OVH Infrastructure..."
+    terraform plan -out=tfplan-ovh-infra
+
+    # Demander confirmation
+    echo ""
+    log_warning "⚠️  IMPORTANT - Déploiement Infrastructure OVH VMware ⚠️"
+    log_warning "Cette opération va déployer :"
+    log_warning "  • 2 VMs Docker (RBX + SBG) - 4 vCPU, 8 Go RAM chacune"
+    log_warning "  • 2 VMs MySQL (RBX + SBG) - 4 vCPU, 16 Go RAM chacune"
+    log_warning "  • Configuration réseau vRack (VLANs 100, 200, 900)"
+    log_warning "  • Règles FortiGate automatisées"
+    log_warning "  • Virtual Protection Groups (VPG) Zerto"
+    log_warning ""
+    log_warning "Durée estimée : ~30 minutes"
+    log_warning "Coût estimé : ~170€/mois (VMs + stockage)"
+    echo ""
+    read -p "Voulez-vous appliquer ce plan? (oui/non): " confirm
+
+    if [ "$confirm" != "oui" ]; then
+        log_info "Déploiement OVH Infrastructure annulé"
+        rm -f tfplan-ovh-infra
+        exit 0
+    fi
+
+    # Appliquer le plan
+    log_info "Application du plan Terraform OVH Infrastructure..."
+    terraform apply tfplan-ovh-infra
+
+    rm -f tfplan-ovh-infra
+
+    # Générer l'inventory Ansible
+    log_info "Génération de l'inventory Ansible..."
+    terraform output -raw ansible_inventory > "${ANSIBLE_DIR}/playbooks/ovh-infrastructure/inventory.yml"
+
+    log_success "Infrastructure OVH VMware déployée avec succès!"
+    separator
+
+    cd "${SCRIPT_DIR}"
+}
+
+deploy_ansible_ovh_infrastructure() {
+    log_step "Configuration post-déploiement de l'infrastructure OVH avec Ansible..."
+
+    cd "${ANSIBLE_DIR}/playbooks/ovh-infrastructure"
+
+    # Vérifier que l'inventaire existe
+    local inventory="${ANSIBLE_DIR}/playbooks/ovh-infrastructure/inventory.yml"
+    if [ ! -f "${inventory}" ]; then
+        log_error "Inventaire Ansible non trouvé: ${inventory}"
+        log_error "Assurez-vous que Terraform a été exécuté avec succès"
+        exit 1
+    fi
+
+    # Attendre que les VMs soient prêtes
+    log_info "Attente de la disponibilité SSH des VMs (60 secondes)..."
+    sleep 60
+
+    # Exécuter le playbook de configuration
+    log_info "Exécution du playbook Ansible pour configuration OVH Infrastructure..."
+    ansible-playbook -i "${inventory}" configure-all.yml
+
+    log_success "Configuration Ansible OVH Infrastructure terminée avec succès!"
+    separator
+
+    cd "${SCRIPT_DIR}"
+}
+
+display_ovh_infrastructure_summary() {
+    log_step "Résumé de l'infrastructure OVH VMware déployée"
+
+    local OVH_TERRAFORM_DIR="${TERRAFORM_DIR}/ovh-infrastructure"
+
+    cd "${OVH_TERRAFORM_DIR}"
+
+    echo ""
+    log_info "🐳 VMs Docker déployées :"
+    terraform output -json docker_vm_rbx_info | jq -r '"  • RBX: " + .name + " (" + .ip + ")"' 2>/dev/null || echo "  • RBX: Vérifier avec terraform output"
+    terraform output -json docker_vm_sbg_info | jq -r '"  • SBG: " + .name + " (" + .ip + ")"' 2>/dev/null || echo "  • SBG: Vérifier avec terraform output"
+
+    echo ""
+    log_info "🐬 VMs MySQL déployées :"
+    terraform output -json mysql_vm_rbx_info | jq -r '"  • RBX: " + .name + " (" + .ip + ") - DB: " + .mysql_database' 2>/dev/null || echo "  • RBX: Vérifier avec terraform output"
+    terraform output -json mysql_vm_sbg_info | jq -r '"  • SBG: " + .name + " (" + .ip + ") - DB: " + .mysql_database' 2>/dev/null || echo "  • SBG: Vérifier avec terraform output"
+
+    echo ""
+    log_info "🔒 Virtual Protection Groups (VPG) Zerto :"
+    terraform output -json zerto_vpg_rbx_to_sbg 2>/dev/null | jq -r '"  • RBX → SBG: " + .vpg_name + " (" + (.vms|tostring) + " VMs)"' || echo "  • RBX → SBG: Vérifier avec terraform output"
+    terraform output -json zerto_vpg_sbg_to_rbx 2>/dev/null | jq -r '"  • SBG → RBX: " + .vpg_name + " (" + (.vms|tostring) + " VMs)"' || echo "  • SBG → RBX: Vérifier avec terraform output"
+
+    echo ""
+    log_info "📋 Fichiers générés :"
+    echo "  • Inventory Ansible: ${ANSIBLE_DIR}/playbooks/ovh-infrastructure/inventory.yml"
+    echo "  • Outputs Terraform: terraform output (dans ${OVH_TERRAFORM_DIR})"
+
+    separator
+
+    cd "${SCRIPT_DIR}"
+}
+
+# ==============================================================================
 # Fonction Principale
 # ==============================================================================
 
@@ -324,6 +458,10 @@ main() {
                 ;;
             --ovh)
                 deploy_mode="ovh"
+                shift
+                ;;
+            --ovh-infra)
+                deploy_mode="ovh-infra"
                 shift
                 ;;
             --terraform-only)
@@ -364,7 +502,7 @@ main() {
     # Déploiement selon le mode
     case $deploy_mode in
         all)
-            log_info "Mode: Déploiement complet (VPN + StrongSwan + OVH)"
+            log_info "Mode: Déploiement complet (VPN + StrongSwan + OVH + OVH-Infra)"
             if [ "$skip_terraform" = false ]; then
                 deploy_terraform
             fi
@@ -373,6 +511,14 @@ main() {
                 deploy_ansible_fortigates
             fi
             run_connectivity_tests
+            # Déployer également l'infrastructure OVH VMware
+            if [ "$skip_terraform" = false ]; then
+                deploy_ovh_infrastructure_terraform
+            fi
+            if [ "$skip_ansible" = false ]; then
+                deploy_ansible_ovh_infrastructure
+            fi
+            display_ovh_infrastructure_summary
             ;;
         vpn)
             log_info "Mode: Déploiement VPN Gateway uniquement"
@@ -400,6 +546,16 @@ main() {
             fi
             run_connectivity_tests
             ;;
+        ovh-infra)
+            log_info "Mode: Déploiement Infrastructure Applicative OVH VMware (Docker + MySQL + Zerto)"
+            if [ "$skip_terraform" = false ]; then
+                deploy_ovh_infrastructure_terraform
+            fi
+            if [ "$skip_ansible" = false ]; then
+                deploy_ansible_ovh_infrastructure
+            fi
+            display_ovh_infrastructure_summary
+            ;;
     esac
 
     # Message final
@@ -409,17 +565,47 @@ main() {
     echo ""
     echo -e "${GREEN}📋 PROCHAINES ÉTAPES :${NC}"
     echo ""
-    echo "  1. Vérifier les tunnels VPN :"
-    echo "     ${CYAN}./scripts/test/check-vpn-status.sh${NC}"
-    echo ""
-    echo "  2. Tester la connectivité :"
-    echo "     ${CYAN}./scripts/test/test-connectivity.sh${NC}"
-    echo ""
-    echo "  3. Consulter les outputs Terraform :"
-    echo "     ${CYAN}cd terraform && terraform output${NC}"
-    echo ""
+
+    # Messages spécifiques selon le mode de déploiement
+    if [ "$deploy_mode" = "ovh-infra" ] || [ "$deploy_mode" = "all" ]; then
+        echo "  Infrastructure OVH VMware :"
+        echo "  1. Tester connectivité SSH vers les VMs :"
+        echo "     ${CYAN}cd terraform/ovh-infrastructure && terraform output${NC}"
+        echo ""
+        echo "  2. Vérifier statut MySQL :"
+        echo "     ${CYAN}ssh vmadmin@<mysql-ip> 'systemctl status mysql'${NC}"
+        echo ""
+        echo "  3. Tester Docker :"
+        echo "     ${CYAN}ssh vmadmin@<docker-ip> 'docker ps'${NC}"
+        echo ""
+        echo "  4. Vérifier VPG Zerto (via Zerto UI) :"
+        echo "     • VPG-RBX-to-SBG-prod (2 VMs protégées)"
+        echo "     • VPG-SBG-to-RBX-prod (2 VMs protégées)"
+        echo ""
+    fi
+
+    if [ "$deploy_mode" != "ovh-infra" ]; then
+        echo "  Infrastructure VPN :"
+        echo "  1. Vérifier les tunnels VPN :"
+        echo "     ${CYAN}./scripts/test/check-vpn-status.sh${NC}"
+        echo ""
+        echo "  2. Tester la connectivité :"
+        echo "     ${CYAN}./scripts/test/test-connectivity.sh${NC}"
+        echo ""
+        echo "  3. Consulter les outputs Terraform :"
+        echo "     ${CYAN}cd terraform && terraform output${NC}"
+        echo ""
+    fi
+
     echo -e "${GREEN}📚 DOCUMENTATION :${NC}"
-    echo "     ${CYAN}Documentation/03-DEPLOIEMENT.md${NC}"
+    if [ "$deploy_mode" = "ovh-infra" ] || [ "$deploy_mode" = "all" ]; then
+        echo "     ${CYAN}Documentation/features/ovh-vmware-infrastructure/functional.md${NC}"
+        echo "     ${CYAN}Documentation/features/ovh-vmware-infrastructure/technical.md${NC}"
+        echo "     ${CYAN}VARIABLES_ENVIRONNEMENT_OVH_INFRASTRUCTURE.md${NC}"
+    fi
+    if [ "$deploy_mode" != "ovh-infra" ]; then
+        echo "     ${CYAN}Documentation/03-DEPLOIEMENT.md${NC}"
+    fi
     echo ""
     separator
 }
