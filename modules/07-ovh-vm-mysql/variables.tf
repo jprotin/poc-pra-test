@@ -328,3 +328,27 @@ variable "enable_mysql_monitoring" {
   type        = bool
   default     = true
 }
+
+# ------------------------------------------------------------------------------
+# Configuration PRA - Failback Mode Pause (ADR-2025-12-30)
+# ------------------------------------------------------------------------------
+
+variable "enable_failback_pause_mode" {
+  description = "Activer le mode pause VMware lors du failback Zerto (recommandé pour éviter double exécution CRON)"
+  type        = bool
+  default     = false
+  validation {
+    condition     = var.enable_failback_pause_mode == false || var.failback_site != ""
+    error_message = "Si enable_failback_pause_mode est activé, failback_site doit être défini (rbx ou sbg)."
+  }
+}
+
+variable "failback_site" {
+  description = "Site primaire pour le failback (rbx ou sbg). Détermine si cette VM doit démarrer en pause lors d'une restauration Zerto."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.failback_site == "" || contains(["rbx", "sbg"], var.failback_site)
+    error_message = "failback_site doit être 'rbx', 'sbg' ou vide si non utilisé."
+  }
+}
