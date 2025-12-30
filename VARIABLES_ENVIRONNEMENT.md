@@ -292,6 +292,43 @@ Variables pour la configuration de Zerto Virtual Protection Groups (VPG) et de l
 | `sbg_failover_network_config.dns_secondary` | `8.8.8.8` | 🟢 | DNS secondaire (Google DNS) |
 | `sbg_failover_network_config.domain_name` | `sbg.prod.local` | 🟢 | Nom de domaine pour les VMs après failover |
 
+### 6.6 Configuration Failback Mode Pause (ADR-2025-12-30)
+
+Variables pour la stratégie de failback "Mode Pause VMware Automatique" qui empêche la double exécution des tâches CRON lors du retour à la normale.
+
+**Référence :** [ADR-2025-12-30 - Stratégie Failback Mode Pause VMware](./Documentation/adr/2025-12-30-strategie-failback-mode-pause-vmware.md)
+
+| Variable | Exemple de valeur | Sensibilité | Description |
+|----------|-------------------|-------------|-------------|
+| `TF_VAR_enable_failback_pause_mode` | `true` | 🟢 | Active le mode pause VMware lors du failback Zerto (recommandé pour tous les environnements de production) |
+| `TF_VAR_failback_site` | `rbx` | 🟢 | Site primaire pour le failback (rbx ou sbg). Détermine quel site doit démarrer en pause lors d'une restauration Zerto |
+
+**Notes importantes :**
+- ⚠️ **Production** : `enable_failback_pause_mode` doit TOUJOURS être `true` en production pour éviter les corruptions de données
+- 🔧 **Site RBX** : Définir `failback_site=rbx` pour les VMs du datacenter RBX (Roubaix)
+- 🔧 **Site SBG** : Définir `failback_site=sbg` pour les VMs du datacenter SBG (Strasbourg)
+- 📋 **Procédure** : Lors d'un failback, les VMs démarrent en mode suspendu. Consulter `Documentation/zerto/checklist-failback-mode-pause.md`
+- 🛠️ **Activation manuelle** : Utiliser le script `scripts/zerto/resume-vms-rbx.sh` pour activer les VMs après validation
+
+**Exemple de configuration (`.env`) :**
+```bash
+# Failback Mode Pause - Configuration Production RBX
+export TF_VAR_enable_failback_pause_mode="true"
+export TF_VAR_failback_site="rbx"
+```
+
+**Exemple de configuration (`.env`) pour SBG :**
+```bash
+# Failback Mode Pause - Configuration Production SBG
+export TF_VAR_enable_failback_pause_mode="true"
+export TF_VAR_failback_site="sbg"
+```
+
+**Impact sur les modules Terraform :**
+- Module `06-ovh-vm-docker` : Ajout de `extra_config` VMware pour configuration PRA
+- Module `07-ovh-vm-mysql` : Ajout de `extra_config` VMware pour configuration PRA
+- Module `zerto-vpg-vmware` : Scripts post-failback pour suspension automatique
+
 ---
 
 ## 7. Zerto - Emergency Backup (Veeam)

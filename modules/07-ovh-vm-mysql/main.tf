@@ -173,12 +173,20 @@ resource "vsphere_virtual_machine" "mysql_vm" {
   }
 
   # Injection de cloud-init via vApp properties
-  extra_config = {
-    "guestinfo.metadata"          = base64encode(local.cloud_init_config)
-    "guestinfo.metadata.encoding" = "base64"
-    "guestinfo.userdata"          = base64encode(local.cloud_init_config)
-    "guestinfo.userdata.encoding" = "base64"
-  }
+  extra_config = merge(
+    {
+      "guestinfo.metadata"          = base64encode(local.cloud_init_config)
+      "guestinfo.metadata.encoding" = "base64"
+      "guestinfo.userdata"          = base64encode(local.cloud_init_config)
+      "guestinfo.userdata.encoding" = "base64"
+    },
+    # Configuration PRA - Failback Mode Pause (ADR-2025-12-30)
+    var.enable_failback_pause_mode ? {
+      "pra.failback.startup_mode" = "suspended"
+      "pra.failback.site"         = var.failback_site
+      "pra.failback.enabled"      = "true"
+    } : {}
+  )
 
   # Cycle de vie
   lifecycle {

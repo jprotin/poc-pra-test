@@ -1,8 +1,14 @@
 # Stratégie Failback Zerto - Gestion des Tâches CRON
 
-**Date :** 2025-12-29
-**Statut :** Proposition
-**Auteur :** Analyse Technique PRA
+**Date :** 2025-12-30
+**Statut :** ✅ **ACCEPTÉ** - Solution 1 (Mode Pause VMware) adoptée comme standard
+**Auteur :** Équipe DevOps / Architecture / Ops PRA
+**ADR Associé :** [ADR-2025-12-30 - Stratégie Failback Mode Pause VMware](../adr/2025-12-30-strategie-failback-mode-pause-vmware.md)
+
+---
+
+> **⚠️ IMPORTANT :** Ce document présente la stratégie officielle de failback Zerto basée sur le **Mode Pause VMware Automatique**.
+> Pour les détails de la décision, les alternatives rejetées et le plan d'implémentation complet, consulter l'ADR ci-dessus.
 
 ---
 
@@ -51,9 +57,11 @@ Les applications déployées sur les VMs (RBX primaire, SBG secours) contiennent
 
 ---
 
-## 3. Solutions Proposées
+## 3. Solution Adoptée : **Mode Pause VMware Automatique**
 
-### Solution 1 : **Mode Pause VMware Automatique** (Recommandée)
+> **✅ SOLUTION STANDARD OFFICIELLE** - Cette approche est désormais la procédure par défaut pour tous les failbacks Zerto.
+
+### Résumé
 
 #### Principe
 Configurer les VMs RBX pour qu'elles démarrent en **état "suspendu" (paused)** après restauration, et ne les activer qu'après validation manuelle.
@@ -78,18 +86,21 @@ Configurer les VMs RBX pour qu'elles démarrent en **état "suspendu" (paused)**
 6. Arrêt VMs SBG
 ```
 
-**Avantages :**
-- ✅ Contrôle total, aucun CRON ne démarre avant validation
-- ✅ Pas de modification applicative
-- ✅ Respect des SLA (validation avant production)
+**Justification du choix :**
+- ✅ **Sécurité maximale** : Aucun CRON ne démarre avant validation
+- ✅ **Simplicité** : Pas de modification applicative
+- ✅ **Conformité** : Respect des SLA avec validation avant production
+- ✅ **Coût** : Aucun surcoût d'infrastructure
 
-**Inconvénients :**
-- ❌ Nécessite intervention manuelle (automatisable via script)
-- ❌ Dépend de la configuration VMware
+**Note :** L'intervention manuelle est un garde-fou voulu, pas une limitation. Le RTO reste < 30 minutes (compatible avec les SLA).
 
 ---
 
-### Solution 2 : **Sémaphore Applicatif avec Fichier Lock**
+## 4. Alternatives Considérées (Rejetées)
+
+Les solutions suivantes ont été évaluées et rejetées. Pour le détail complet de l'analyse, voir [l'ADR associé](../adr/2025-12-30-strategie-failback-mode-pause-vmware.md).
+
+### Solution 2 (Rejetée) : **Sémaphore Applicatif avec Fichier Lock**
 
 #### Principe
 Implémenter un **verrou logiciel** que chaque CRON vérifie avant exécution.
@@ -127,19 +138,14 @@ fi
 6. Arrêt SBG
 ```
 
-**Avantages :**
-- ✅ Solution logicielle, indépendante de l'hyperviseur
-- ✅ Traçabilité (logs applicatifs)
-- ✅ Automatisable via Ansible/Chef/Puppet
-
-**Inconvénients :**
-- ❌ Nécessite modification de **tous** les CRON
-- ❌ Risque si le fichier lock est mal synchronisé
-- ❌ Maintenance (wrap chaque CRON)
+**Pourquoi rejetée :**
+- ❌ Nécessite modification de **tous** les CRON (dette technique majeure)
+- ❌ Risque de régression si un CRON n'est pas modifié
+- ❌ Maintenance complexe pour chaque nouvelle tâche CRON
 
 ---
 
-### Solution 3 : **Désactivation Temporaire des CRON via Systemd Timer Override**
+### Solution 3 (Rejetée) : **Désactivation Temporaire des CRON via Systemd Timer Override**
 
 #### Principe
 Utiliser un service systemd qui désactive dynamiquement les timers CRON au boot.
@@ -194,18 +200,15 @@ fi
 7. Arrêt SBG
 ```
 
-**Avantages :**
-- ✅ Centralisé (pas de modification des CRON)
-- ✅ Utilise Consul/etcd pour état distribué
-- ✅ Réutilisable pour autres services (non seulement CRON)
-
-**Inconvénients :**
-- ❌ Dépendance à un service externe (Consul)
-- ❌ Complexité de setup initial
+**Pourquoi rejetée :**
+- ❌ Dépendance critique à Consul/etcd (SPOF)
+- ❌ Complexité accrue (cluster à maintenir)
+- ❌ Coût supplémentaire (3+ VMs Consul)
+- ❌ Délai de déploiement : 2-3 semaines vs 3 jours pour Solution 1
 
 ---
 
-### Solution 4 : **Orchestration Zerto avec Pre/Post Scripts**
+### Solution 4 (Rejetée) : **Orchestration Zerto avec Pre/Post Scripts uniquement**
 
 #### Principe
 Utiliser les **scripts Zerto** (Pre-failback / Post-failback) pour automatiser la désactivation/activation des CRON.
@@ -231,73 +234,92 @@ for vm in $(zerto-cli list-vms --vpg=PROD-RBX); do
 done
 ```
 
-**Avantages :**
-- ✅ Natif Zerto (intégré au workflow PRA)
-- ✅ Automatique
-
-**Inconvénients :**
-- ❌ Dépend de la version Zerto et de la licence
-- ❌ Nécessite accès SSH entre Zerto et VMs (sécurité)
+**Pourquoi rejetée :**
+- ❌ **Fenêtre de risque incompressible** : 10-30 secondes entre boot VM et exécution du script
+- ❌ Dépendance SSH et réseau (échec si réseau non opérationnel)
+- ❌ Race condition possible (CRON démarrent avant le script)
 
 ---
 
-## 4. Matrice de Comparaison
+## 5. Implémentation de la Solution
 
-| Critère | Solution 1<br>(VMware Pause) | Solution 2<br>(Fichier Lock) | Solution 3<br>(Systemd + Consul) | Solution 4<br>(Zerto Scripts) |
-|---------|:---:|:---:|:---:|:---:|
-| **Complexité** | 🟢 Faible | 🟡 Moyenne | 🔴 Élevée | 🟡 Moyenne |
-| **Modification Apps** | 🟢 Aucune | 🔴 Tous les CRON | 🟢 Aucune | 🟢 Aucune |
-| **Automatisation** | 🟡 Partielle | 🟢 Totale | 🟢 Totale | 🟢 Totale |
-| **Dépendances** | VMware API | Aucune | Consul/etcd | Zerto Scripting |
-| **Réversibilité** | 🟢 Immédiate | 🟢 Immédiate | 🟢 Immédiate | 🟢 Immédiate |
-| **Coût** | 🟢 Nul | 🟢 Nul | 🟡 Setup Consul | 🟢 Inclus Zerto |
-| **Risque Erreur** | 🟢 Faible | 🟡 Moyen | 🟡 Moyen | 🟢 Faible |
+### Modifications Infrastructure as Code (Terraform)
 
----
+**Fichiers modifiés :**
+- `modules/06-ovh-vm-docker/main.tf` : Ajout configuration `extra_config` pour mode pause
+- `modules/07-ovh-vm-mysql/main.tf` : Ajout configuration `extra_config` pour mode pause
+- `modules/06-ovh-vm-docker/variables.tf` : Nouvelles variables `enable_failback_pause_mode`, `failback_site`
+- `modules/07-ovh-vm-mysql/variables.tf` : Nouvelles variables `enable_failback_pause_mode`, `failback_site`
+- `zerto/terraform/modules/zerto-vpg-vmware/` : Scripts de post-failback suspend
 
-## 5. Recommandation Finale
+**Variables d'environnement ajoutées :**
+```bash
+# Failback Mode Pause (Solution 1 - Standard)
+export TF_VAR_enable_failback_pause_mode="true"  # 🟢 Activer le mode pause pour failback
+export TF_VAR_failback_site="rbx"                # 🟢 Site primaire (rbx ou sbg)
+```
 
-### Approche Hybride : **Solution 1 + Solution 2**
+### Scripts de Gestion
 
-**Phase 1 (Court terme - 1 semaine) :**
-- Implémenter **Solution 1** (VMware Pause) pour sécuriser immédiatement les failbacks
-- Créer une procédure manuelle validée
+**Nouveau script d'activation :**
+- `scripts/zerto/resume-vms-rbx.sh` : Active (resume) les VMs RBX après validation
 
-**Phase 2 (Moyen terme - 1 mois) :**
-- Déployer **Solution 2** (Fichier Lock) sur les CRON critiques
-- Automatiser via Ansible/Terraform
+**Script Zerto post-failback :**
+- `zerto/terraform/modules/zerto-vpg-vmware/scripts/post-failback-suspend.sh` : Suspend automatiquement les VMs après restauration
 
-**Pourquoi cette approche ?**
-- ✅ Protection immédiate (VMware Pause)
-- ✅ Redondance logicielle (Lock File) en cas d'échec VMware
-- ✅ Pas de dépendance externe (Consul)
-- ✅ Progressif (permet de tester)
+### Documentation Opérationnelle
 
----
-
-## 6. Plan d'Action
-
-### Sprint 1 : Sécurisation Immédiate (3 jours)
-- [ ] Configurer les VMs RBX avec démarrage en mode suspendu
-- [ ] Créer la checklist de validation failback
-- [ ] Tester sur un VPG non-critique
-- [ ] Former les équipes Ops
-
-### Sprint 2 : Automatisation (2 semaines)
-- [ ] Développer le wrapper CRON avec fichier lock
-- [ ] Déployer sur 3 CRON pilotes
-- [ ] Mesurer l'impact (logs, métriques)
-- [ ] Rollout progressif (20% → 50% → 100%)
-
-### Sprint 3 : Industrialisation (1 mois)
-- [ ] Intégrer dans l'outillage Zerto (scripts post-failback)
-- [ ] Ajouter monitoring (alerte si CRON bloqué > 2h)
-- [ ] Documenter la runbook complète
-- [ ] Simuler un failback en conditions réelles
+**Nouveaux documents créés :**
+- `Documentation/zerto/checklist-failback-mode-pause.md` : Checklist de validation obligatoire
+- `Documentation/zerto/runbook-failback-mode-pause.md` : Procédure détaillée étape par étape
 
 ---
 
-## 7. Métriques de Succès
+## 6. Procédure Opérationnelle Standard (Résumé)
+
+Pour la procédure détaillée complète, voir le [Runbook Failback Mode Pause](./runbook-failback-mode-pause.md).
+
+### Workflow Simplifié
+
+1. **Restauration** (Automatique) : Zerto restaure les VMs RBX en mode PAUSE
+2. **Validation** (Manuelle) : Exécution de la checklist de validation (réseau, DB, montages)
+3. **Activation** (Manuelle) : `./scripts/zerto/resume-vms-rbx.sh`
+4. **Bascule** (Manuelle) : Modification DNS/LB vers RBX
+5. **Désactivation secours** (Manuelle) : Arrêt des VMs SBG
+
+### RTO (Recovery Time Objective)
+
+- **Temps total estimé :** 25-30 minutes
+- **Compatible avec SLA :** RTO < 1h ✅
+
+---
+
+## 7. Plan d'Action (Mise à Jour)
+
+### ✅ Sprint 1 : Sécurisation Immédiate (3 jours) - EN COURS
+
+- [x] Créer l'ADR de décision
+- [x] Mettre à jour la documentation stratégie failback
+- [ ] Modifier les modules Terraform VM
+- [ ] Créer les scripts de failback
+- [ ] Tester sur VMs de qualification
+
+### Sprint 2 : Tests et Formation (1 semaine)
+
+- [ ] Test failback simulé sur VPG non-critique
+- [ ] Formation équipe Ops (2h avec simulation)
+- [ ] Mesure RTO réel vs cible
+- [ ] Ajustements procédure
+
+### Sprint 3 : Déploiement Production (1 semaine)
+
+- [ ] Déploiement sur VPG Production
+- [ ] Activation monitoring (alertes VM suspended)
+- [ ] Post-mortem et retours d'expérience
+
+---
+
+## 8. Métriques de Succès
 
 | KPI | Cible | Mesure |
 |-----|-------|--------|
@@ -308,7 +330,7 @@ done
 
 ---
 
-## 8. Annexes
+## 9. Annexes
 
 ### A. Checklist Failback (Version Manuelle)
 
